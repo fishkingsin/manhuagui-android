@@ -6,7 +6,7 @@
 
 **Architecture:** Kotlin + Jetpack Compose single-`:app` app. The `ffi/` Rust crate depends on the fork's core crates by git tag and exposes one async `AndroidLibrary` object through UniFFI. All UniFFI records, enums, errors, and conversions live in `ffi/`; the shared core has no UniFFI dependency. Coil 3 loads FFI `ImagePage`s with per-page headers. No database, dependency injection framework, or WorkManager in this phase.
 
-**Tech Stack:** AGP 8.13.2 + Gradle 8.13, Kotlin 2.2.10, Compose BOM (Material3), Navigation-Compose, Coil 3.x (Compose), OkHttp via Coil, and kotlinx-coroutines-core 1.9.0. Rust uses `org.mozilla.rust-android-gradle.rust-android` 0.10.0 (targets `arm64` + `x86_64`) and UniFFI 0.28.3. CI uses JDK 17; local builds use JDK 21.
+**Tech Stack:** AGP 8.13.2 + Gradle 8.13, Kotlin 2.2.10, Compose BOM (Material3), Navigation-Compose, Coil 3.3.0 with `coil-network-okhttp`, and kotlinx-coroutines-core 1.9.0. Rust uses `org.mozilla.rust-android-gradle.rust-android` 0.10.0 (targets `arm64` + `x86_64`) and UniFFI 0.28.3. CI uses JDK 17; local builds use JDK 21.
 
 **Spec:** `docs/superpowers/specs/2026-11-22-manhuagui-android-ereader-design.md` (§Architecture, §Phasing phase 1)
 
@@ -98,7 +98,7 @@ Task 1 preflight corrections:
 ### Task 3: Kotlin service layer + Coil ImagePage pipeline
 
 **Files:**
-- Modify: `app/build.gradle.kts` (add `kotlinx-coroutines-core:1.9.0`)
+- Modify: `app/build.gradle.kts` (add `kotlinx-coroutines-core:1.9.0`, `kotlinx-coroutines-test:1.9.0`, `junit:junit:4.13.2`, and `coil-network-okhttp:3.3.0`)
 - Create: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/AppError.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/PageImages.kt`, `app/src/main/java/com/fishkingsin/manhuagui/App.kt` (Application owns `ImageLoader` and `AppContainer`)
 - Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt
 
@@ -107,10 +107,10 @@ Task 1 preflight corrections:
 - `AndroidException.toAppError()` maps each generated variant to a fixed English message. Use "Couldn't reach the site", "The site is rate-limiting. Try later.", "The site format changed. Update the app.", "Not found.", or "Cancelled." Raw site error text must not appear in UI copy.
 - `LibraryService` wraps `AndroidLibrary` calls in `withContext(io)` and returns `Result<T>`.
 - Its suspend methods are `browseWithin(window, startPage, maxPages): Result<List<ComicListItem>>`, `browseLatestPage(page): Result<BrowsePage>`, `search(keyword, page): Result<SearchPage>`, `getComic(nativeId): Result<ComicDetails>`, and `getChapterPages(nativeId, chapterId): Result<ChapterPagesResult>`.
-- `object PageImages`: `fun modelFor(page: ImagePage): ImageRequest.Builder.() -> Unit` applying all `ImagePage.headers` per request and `memoryCacheKey(page.url)`; Coil 3 `ImageLoader` built in `App` with `diskCache` 512MB, `crossfade(false)`.
+- `object PageImages`: `fun headersFor(page: ImagePage): Map<String, String>` returns the page's headers; `fun modelFor(page: ImagePage): ImageRequest.Builder.() -> Unit` applies those headers to that request and sets `memoryCacheKey(page.url)`. Coil 3 `ImageLoader` uses the OkHttp network module, a 512MB disk cache, and `crossfade(false)`.
 - Consumes: generated `uniffi.manhuagui_ffi.*` types.
 
-- [ ] **Step 1: Failing tests** — AppErrorTest: construct each generated variant with its detail (`AndroidException.Network(detail = "..."), AndroidException.RateLimited(detail = "..."), AndroidException.ParseFailed(detail = "..."), AndroidException.NotFound(detail = "..."), AndroidException.Cancelled(detail = "...")`) and assert its English `userMessage`; PageImagesTest: ImagePage with Referer header → HttpHeaders contains it; url key stable.
+- [ ] **Step 1: Failing tests** — AppErrorTest: construct each generated variant with its detail (`AndroidException.Network(detail = "..."), AndroidException.RateLimited(detail = "..."), AndroidException.ParseFailed(detail = "..."), AndroidException.NotFound(detail = "..."), AndroidException.Cancelled(detail = "...")`) and assert its English `userMessage`; PageImagesTest: `headersFor` preserves the ImagePage Referer exactly and the request cache key uses the URL.
 - [ ] **Step 2: RED → implement → GREEN**; `./gradlew testDebugUnitTest` green.
 - [ ] **Step 3: Commit** — `feat: service layer + page image pipeline`.
 
