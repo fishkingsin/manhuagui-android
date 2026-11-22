@@ -67,9 +67,10 @@ Task 1 preflight corrections:
 ### Task 2: Fork-side `uniffi` feature + `AndroidLibrary` FFI surface
 
 **Files:**
-- Modify (FORK repo `fishkingsin/manhuagui-downloader`, new branch `uniffi-feature`): `core/source-api/Cargo.toml`, `core/source-api/src/{source,error,types}.rs`
-- Create: `ffi/src/{library.rs,types.rs}` (android repo)
-- Test: fork `core/source-api/tests/uniffi_record_test.rs`; android `ffi/tests/library_test.rs`
+- Modify (fork repo `fishkingsin/manhuagui-downloader`, branch `uniffi-feature`): root `Cargo.lock`, `core/source-api/Cargo.toml`, `core/source-api/src/{source,error,types}.rs`
+- Modify (Android repo): `ffi/Cargo.toml`, `ffi/Cargo.lock`, `ffi/src/lib.rs`
+- Create: `ffi/src/{library.rs,types.rs}` (Android repo)
+- Test: fork `core/source-api/tests/uniffi_record_test.rs`; Android `ffi/tests/library_test.rs`
 
 **Interfaces:**
 - Fork: `uniffi = { version = "0.28.3", optional = true }` feature on source-api; only `UpdateWindow` gets `#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]` and `SourceError` gets `#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]` (variants carry `message: String`). Do not derive UniFFI on `Comic`, `ChapterInfo`, `SearchResult`, or date-bearing core records: they contain `PathBuf` / `chrono::NaiveDate` storage-domain fields. Tag `v0.1.1-core` (merge to fork main, push tag).
