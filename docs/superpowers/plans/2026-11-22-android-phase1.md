@@ -47,7 +47,13 @@
   - `generateUniffiBindings` depends on `buildHostFfi` and runs `cargo run --manifest-path ffi/Cargo.toml --features uniffi-bindgen --bin uniffi-bindgen -- generate --library <host-cdylib> --language kotlin --out-dir app/build/generated/source/uniffi`.
   - `compileDebugKotlin` depends on generated sources and Android `cargoBuild`.
 
-UniFFI must inspect a host cdylib. macOS cannot load the Android `.so` to read UniFFI metadata.
+Task 1 preflight corrections:
+
+- UniFFI must inspect a host cdylib. macOS cannot load the Android `.so` to read UniFFI metadata. Run the UniFFI CLI with `ffi/` as its working directory and `Cargo.toml` as its manifest path because UniFFI 0.28.3 runs `cargo metadata` relative to the current directory, and this repository has no root Cargo manifest.
+- Enable AndroidX in `gradle.properties`; otherwise AGP rejects the AndroidX Compose dependencies.
+- Pin Activity Compose to 1.10.1 because 1.11.0 requires compile SDK 36, while this task pins compile SDK 35.
+- Set Java and Kotlin bytecode targets to 17 because KGP defaults to the local JDK 21 target while AGP defaults Java to 8.
+- Declare Rust crate files as `buildHostFfi` inputs and the host cdylib as a binding-generation input so Gradle does not skip stale outputs.
 
 - [ ] **Step 1: Scaffold the Gradle project.** Pin the wrapper to Gradle 8.13, AGP to 8.13.2, and the Kotlin Gradle plugin to 2.2.10. Add Compose BOM, Coil 3, and Navigation-Compose. Set `minSdk 29` and `targetSdk 35`. Add the JNA 5.12.0 AAR required by generated UniFFI Kotlin bindings. Create `MainActivity` that imports `uniffi.manhuagui_ffi.coreVersion` and renders `Text("manhuagui ${coreVersion()}")`.
 - [ ] **Step 2: Configure Android Rust builds.** Apply plugin `org.mozilla.rust-android-gradle.rust-android` version `0.10.0`. In `app/build.gradle.kts`, set `cargo.module` to `../ffi`, `cargo.libname` to `manhuagui_ffi`, `cargo.targets` to `listOf("arm64", "x86_64")`, and `cargo.profile` to `debug`. In `ffi/Cargo.toml`, set `[lib] name = "manhuagui_ffi", crate-type = ["cdylib", "rlib"]`.
