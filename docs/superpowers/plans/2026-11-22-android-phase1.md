@@ -135,9 +135,9 @@ Task 1 preflight corrections:
 
 **Interfaces:**
 - SearchViewModel: `query`, `results: SearchPage?`, `loading`, `error`; `submit()` → `service.search(query, 1)`; `SearchPage.items` reuse the shared `ComicCard` UI → comic route.
-- DetailViewModel(nativeId): `comic: ComicDetails?`, `chapters: List<ChapterItem>` displayed newest-first (reverse the adapter's flattened/site order), `loading/error`; tap chapter → reader route. No bookmark button yet (phase 2).
+- DetailViewModel(nativeId): `comic: ComicDetails?`, `chapters: List<ChapterItem>` sorted by `group_size` descending, then `group_name` ascending for stable ties, then `order` descending within each group. This puts the newest chapter first without relying on HashMap iteration order. Tap a chapter to open the reader route. No bookmark button yet (phase 2).
 
-- [ ] **Step 1: Failing tests** (fake service; newest-first ordering assertion; error paths) → RED → implement → GREEN.
+- [ ] **Step 1: Failing tests**. Use a fake service. Assert groups sort by descending size, ties sort by group name, and chapters sort by descending order within a group. Test error paths. Run RED before implementation, then GREEN.
 - [ ] **Step 2: Screens + nav**; assembleDebug; emulator smoke.
 - [ ] **Step 3: Commit** — `feat: search and comic detail screens`.
 
