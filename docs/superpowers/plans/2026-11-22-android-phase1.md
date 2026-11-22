@@ -36,7 +36,7 @@
 ### Task 1: Repo scaffold — Gradle + Rust build + CI
 
 **Files:**
-- Create: `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties`, `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/com/fishkingsin/manhuagui/MainActivity.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/theme/Theme.kt`, `ffi/Cargo.toml`, `ffi/src/lib.rs`, `ffi/uniffi-bindgen.rs`, `.github/workflows/android-ci.yml`, `.gitignore`, `README.md`
+- Create: `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties`, `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/com/fishkingsin/manhuagui/MainActivity.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/theme/Theme.kt`, `ffi/Cargo.toml`, `ffi/Cargo.lock`, `ffi/src/lib.rs`, `ffi/uniffi-bindgen.rs`, `.github/workflows/android-ci.yml`, `.gitignore`, `README.md`
 - Modify: `docs/superpowers/plans/2026-11-22-android-phase1.md` to record preflight decisions and exact build commands
 
 **Interfaces:**
