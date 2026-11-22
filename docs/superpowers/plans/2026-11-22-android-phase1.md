@@ -26,10 +26,10 @@
 ## Review Focus
 
 1. **Rate-limit burst on cold open** — Latest with a 30-day window walks ≤10 pages sequentially; a UI recomposition must not re-trigger the query (StateFlow + `loading` guard). Test: LatestViewModel test — second `refresh()` while loading is a no-op.
-2. **Error text is English, structured** — `AndroidError` maps to sealed `AppError` (Network/RateLimited/ParseFailed/NotFound/Cancelled) with English `userMessage`; raw site/eyre strings never reach UI. Test: mapping unit test per variant.
+2. **Error text is English, structured** — Kotlin `AndroidException` variants (`AndroidException.Network`, `AndroidException.RateLimited`, `AndroidException.ParseFailed`, `AndroidException.NotFound`, `AndroidException.Cancelled`) map to sealed `AppError` with English `userMessage`; raw site/eyre strings never reach UI. Test: mapping unit test per variant.
 3. **RTL tap-zone mirroring** — `tapZoneAction(x, width, rtl)` pure fn: in RTL, left 40% = NEXT page, right 40% = PREV (mirrored), center = chrome; in LTR unreversed. Test: boundary values x=0, 0.39w, 0.5w, 0.61w, w.
 4. **Zoom state isolation** — scale/offset reset when page index changes; pager composes only the visible page (no beyondBounds). Test: ReaderState pure class unit test.
-5. **Empty/failed chapter** — 0 pages or decrypt failure → error state with retry, never a crash or blank screen. Test: ViewModel with fake service returning AndroidError.ParseFailed → Error state.
+5. **Empty/failed chapter** — 0 pages or decrypt failure → error state with retry, never a crash or blank screen. Test: ViewModel with fake service returning `AndroidException.ParseFailed` → Error state.
 
 ---
 
@@ -73,7 +73,8 @@ Task 1 preflight corrections:
 
 **Interfaces:**
 - The fork's main branch already contains the TLS-enabled core commit `d3a3d36`. After verifying `cargo test --workspace`, tag that commit `v0.1.1-core` and push the tag. Do not change core source code or add UniFFI dependencies to source-api.
-- `ffi/src/types.rs` defines the UniFFI API types. `AndroidUpdateWindow` mirrors the four core window choices. `AndroidError` has `Network`, `RateLimited`, `ParseFailed`, `NotFound`, and `Cancelled` variants, each with a detail string.
+- `ffi/src/types.rs` defines the UniFFI API types. `AndroidUpdateWindow` mirrors the four core window choices. Rust `AndroidError` has `Network`, `RateLimited`, `ParseFailed`, `NotFound`, and `Cancelled` variants, each with a detail string.
+- UniFFI 0.28.3 generates Rust `AndroidError` as Kotlin `AndroidException`, with nested variants such as `AndroidException.Network`. Kotlin callers use the generated `AndroidException` name.
 - `ComicListItem` contains `comic_id`, `title`, `cover_url`, `status_text`, `update_text: Option<String>`, and `rating: Option<f32>`. `AndroidLibrary` maps `source_api::SourceError` to `AndroidError` and maps `AndroidUpdateWindow` to the core `UpdateWindow`.
 - `BrowsePage` contains `items: Vec<ComicListItem>`, `page`, and `total_pages`. `SearchPage` contains `items: Vec<ComicListItem>`, `current`, and `total`.
 - `ChapterItem` contains `chapter_id`, `chapter_title`, `chapter_size`, `group_name`, `group_size`, and `order: f64`.
@@ -102,13 +103,13 @@ Task 1 preflight corrections:
 
 **Interfaces:**
 - Define `sealed interface AppError` with `userMessage: String` and data classes `Network`, `RateLimited`, `ParseFailed`, `NotFound`, `Cancelled`, and `Unknown`. Each data class carries a `detail: String`.
-- `AndroidError.toAppError()` maps each variant to a fixed English message. Use "Couldn't reach the site", "The site is rate-limiting. Try later.", "The site format changed. Update the app.", "Not found.", or "Cancelled." Raw site error text must not appear in UI copy.
+- `AndroidException.toAppError()` maps each generated variant to a fixed English message. Use "Couldn't reach the site", "The site is rate-limiting. Try later.", "The site format changed. Update the app.", "Not found.", or "Cancelled." Raw site error text must not appear in UI copy.
 - `LibraryService` wraps `AndroidLibrary` calls in `withContext(io)` and returns `Result<T>`.
 - Its suspend methods are `browseWithin(window, startPage, maxPages): Result<List<ComicListItem>>`, `browseLatestPage(page): Result<BrowsePage>`, `search(keyword, page): Result<SearchPage>`, `getComic(nativeId): Result<ComicDetails>`, and `getChapterPages(nativeId, chapterId): Result<ChapterPagesResult>`.
 - `object PageImages`: `fun modelFor(page: ImagePage): ImageRequest.Builder.() -> Unit` applying all `ImagePage.headers` per request and `memoryCacheKey(page.url)`; Coil 3 `ImageLoader` built in `App` with `diskCache` 512MB, `crossfade(false)`.
 - Consumes: generated `uniffi.manhuagui_ffi.*` types.
 
-- [ ] **Step 1: Failing tests** — AppErrorTest: each AndroidError variant → expected English userMessage (fake the generated types by constructing them — generated classes are constructible); PageImagesTest: ImagePage with Referer header → HttpHeaders contains it; url key stable.
+- [ ] **Step 1: Failing tests** — AppErrorTest: construct each generated variant with its detail (`AndroidException.Network(detail = "..."), AndroidException.RateLimited(detail = "..."), AndroidException.ParseFailed(detail = "..."), AndroidException.NotFound(detail = "..."), AndroidException.Cancelled(detail = "...")`) and assert its English `userMessage`; PageImagesTest: ImagePage with Referer header → HttpHeaders contains it; url key stable.
 - [ ] **Step 2: RED → implement → GREEN**; `./gradlew testDebugUnitTest` green.
 - [ ] **Step 3: Commit** — `feat: service layer + page image pipeline`.
 
