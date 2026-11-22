@@ -100,7 +100,7 @@ Task 1 preflight corrections:
 **Files:**
 - Modify: `app/build.gradle.kts` (add `kotlinx-coroutines-core:1.9.0`, `kotlinx-coroutines-test:1.9.0`, `junit:junit:4.13.2`, and `coil-network-okhttp:3.3.0`)
 - Create: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/AppError.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/PageImages.kt`, `app/src/main/java/com/fishkingsin/manhuagui/App.kt` (Application owns `ImageLoader` and `AppContainer`)
-- Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt`
 
 **Interfaces:**
 - Define `sealed interface AppError` with `userMessage: String` and data classes `Network`, `RateLimited`, `ParseFailed`, `NotFound`, `Cancelled`, and `Unknown`. Each data class carries a `detail: String`.
