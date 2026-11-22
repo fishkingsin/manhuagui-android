@@ -82,7 +82,7 @@ Task 1 preflight corrections:
 - `AndroidLibrary` maps core domain objects to these records at the FFI boundary.
 - Android `ffi`: `pub struct AndroidLibrary { inner: Library }` with `#[uniffi::export(async_runtime = "tokio")]`:
   - `#[uniffi::constructor] fn new() -> AndroidLibrary` (builds `CoreConfig::default()`, sets mobile timeouts to 15s API / 30s image, keeps cookie empty and system proxy, registers `ManhuaguiSource`; v1 has no login or proxy UI)
-  - Private Rust test seam `fn with_library(library: Library) -> AndroidLibrary` permits fixture-backed `MockSource` tests; it is not exported through UniFFI.
+  - Rust-only test seam `pub fn with_library(library: Library) -> AndroidLibrary` lives in a separate, non-UniFFI `impl` block so integration tests can inject `MockSource`; it is not exported through UniFFI.
   - `async fn browse_within(&self, window: AndroidUpdateWindow, start_page: i32, max_pages: i32) -> Result<Vec<ComicListItem>, AndroidError>`
   - `async fn browse_latest_page(&self, page: i32) -> Result<BrowsePage, AndroidError>`
   - `async fn search(&self, keyword: String, page: i32) -> Result<SearchPage, AndroidError>`
