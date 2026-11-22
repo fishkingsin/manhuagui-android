@@ -6,7 +6,7 @@
 
 **Architecture:** Kotlin + Jetpack Compose single-`:app` app. The `ffi/` Rust crate depends on the fork's core crates by git tag and exposes one async `AndroidLibrary` object through UniFFI. All UniFFI records, enums, errors, and conversions live in `ffi/`; the shared core has no UniFFI dependency. Coil 3 loads FFI `ImagePage`s with per-page headers. No database, dependency injection framework, or WorkManager in this phase.
 
-**Tech Stack:** AGP 8.13.2 + Gradle 8.13, Kotlin 2.2.10, Compose BOM (Material3), Navigation-Compose, Coil 3.x (Compose), OkHttp via Coil; Rust via `org.mozilla.rust-android-gradle.rust-android` 0.10.0 (targets `arm64` + `x86_64`); UniFFI 0.28.3 proc-macro + Kotlin bindgen. JDK 17 in CI; JDK 21 supported locally.
+**Tech Stack:** AGP 8.13.2 + Gradle 8.13, Kotlin 2.2.10, Compose BOM (Material3), Navigation-Compose, Coil 3.x (Compose), OkHttp via Coil, and kotlinx-coroutines-core 1.9.0. Rust uses `org.mozilla.rust-android-gradle.rust-android` 0.10.0 (targets `arm64` + `x86_64`) and UniFFI 0.28.3. CI uses JDK 17; local builds use JDK 21.
 
 **Spec:** `docs/superpowers/specs/2026-11-22-manhuagui-android-ereader-design.md` (§Architecture, §Phasing phase 1)
 
@@ -98,8 +98,9 @@ Task 1 preflight corrections:
 ### Task 3: Kotlin service layer + Coil ImagePage pipeline
 
 **Files:**
-- Create: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/AppError.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/PageImages.kt`, `app/src/main/java/com/fishkingsin/manhuagui/App.kt` (Application: ImageLoader + AppContainer)
-- Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt`
+- Modify: `app/build.gradle.kts` (add `kotlinx-coroutines-core:1.9.0`)
+- Create: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/AppError.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/PageImages.kt`, `app/src/main/java/com/fishkingsin/manhuagui/App.kt` (Application owns `ImageLoader` and `AppContainer`)
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt
 
 **Interfaces:**
 - Define `sealed interface AppError` with `userMessage: String` and data classes `Network`, `RateLimited`, `ParseFailed`, `NotFound`, `Cancelled`, and `Unknown`. Each data class carries a `detail: String`.
