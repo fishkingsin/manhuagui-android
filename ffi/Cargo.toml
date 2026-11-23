@@ -1,0 +1,27 @@
+[package]
+name = "manhuagui-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "manhuagui_ffi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+uniffi = { version = "=0.28.3", features = ["tokio"] }
+source-api = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
+source-manhuagui = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
+library = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
+
+[dev-dependencies]
+async-trait = "0.1"
+chrono = "0.4.39"
+tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread"] }
+
+[features]
+uniffi-bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["uniffi-bindgen"]

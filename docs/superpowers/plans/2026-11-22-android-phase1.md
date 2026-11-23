@@ -4,127 +4,162 @@
 
 **Goal:** A debuggable Android APK that browses manhuagui's Japanese-comic updates (7/15/30-day windows), searches, opens comic details, and reads a chapter streamed live with RTL paging and tap zones — all over the shared Rust core via UniFFI, styled for e-ink.
 
-**Architecture:** Kotlin + Jetpack Compose single-`:app` app; `ffi/` Rust crate (`manhuagui-ffi`) in this repo depends on the fork's core crates (git tag) and exposes one `AndroidLibrary` object via UniFFI (async, tokio); `source-api` gains an optional `uniffi` feature (Record/Enum derives, cfg_attr'd like `specta`) — a small fork-side change tagged `v0.1.1-core`. Coil 3 loads pages with per-`PageRef` headers. No DB, no DI framework, no WorkManager in this phase.
+**Architecture:** Kotlin + Jetpack Compose single-`:app` app. The `ffi/` Rust crate depends on the fork's core crates by git tag and exposes one async `AndroidLibrary` object through UniFFI. All UniFFI records, enums, errors, and conversions live in `ffi/`; the shared core has no UniFFI dependency. Coil 3 loads FFI `ImagePage`s with per-page headers. No database, dependency injection framework, or WorkManager in this phase.
 
-**Tech Stack:** Kotlin 2.x, Compose BOM (Material3), Navigation-Compose, Coil 3.x (Compose), OkHttp via Coil; Rust via `org.mozilla.rust-android-gradle` plugin (cargo-ndk, targets `aarch64-linux-android` + `x86_64-linux-android`), UniFFI 0.28 proc-macro + kotlin bindgen.
+**Tech Stack:** AGP 8.13.2 + Gradle 8.13, Kotlin 2.2.10, Compose BOM (Material3), Navigation-Compose, Coil 3.3.0 with `coil-network-okhttp`, and kotlinx-coroutines-core 1.9.0. Rust uses `org.mozilla.rust-android-gradle.rust-android` 0.10.0 (targets `arm64` + `x86_64`) and UniFFI 0.28.3. CI uses JDK 17; local builds use JDK 21.
 
 **Spec:** `docs/superpowers/specs/2026-11-22-manhuagui-android-ereader-design.md` (§Architecture, §Phasing phase 1)
 
 ## Global Constraints
 
-- minSdk 29, targetSdk/compileSdk 35; Kotlin 2.x; single `:app` Gradle module + `ffi/` cargo crate.
+- Use minSdk 29 and targetSdk/compileSdk 35. Pin AGP 8.13.2, Gradle 8.13, and Kotlin Gradle plugin 2.2.10. Use one `:app` module and one `ffi/` Cargo crate.
+- Commit the Gradle wrapper files for version 8.13. Run builds with `./gradlew`.
+- Install Rust targets `aarch64-linux-android` and `x86_64-linux-android`. Configure the Gradle plugin with target names `arm64` and `x86_64`. Pin NDK 27.2.12479018.
 - E-ink style is law: pure black-on-white, no ripples (neutral `LocalIndication`), no NavHost transitions, no crossfades, no elevation shadows; 1dp borders; system font; large tap targets.
 - UI language English; comic/chapter titles render as-is (CJK).
 - Reader defaults RTL (`LayoutDirection.Rtl`); pages decode at full source resolution (zoom is in-pipeline from day one).
-- Core comes from the fork by tag — never path deps: `manhuagui-ffi` deps = `{ git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }` (Task 2 creates that tag; until then Task 1 pins `v0.1.0-core` and the ffi crate is a stub).
-- Kotlin code never sees site specifics: it consumes `AndroidLibrary`, `PageRef.headers`, and mapped sealed errors only.
+- When FFI consumes Rust core crates, dependencies use fork git tags, never local path deps. Task 1 is an isolated FFI stub; Task 2 adds `source-api`, `source-manhuagui`, and `library` dependencies pinned to the fork's `v0.1.1-core` tag.
+- Kotlin code never sees site specifics: it consumes `AndroidLibrary`, FFI `ImagePage.headers`, and mapped sealed errors only.
 - Interactive Latest window queries use `max_pages = 10` (anti-ban pacing: ~10 requests per window query); `All` mode paginates one page at a time on user demand.
-- Every task ends with `./gradlew assembleDebug` green (and `cargo test -p manhuagui-ffi` where Rust changed).
+- Every task ends with `./gradlew assembleDebug` green (and `cargo test --manifest-path ffi/Cargo.toml` where Rust changed).
 
 ## Review Focus
 
 1. **Rate-limit burst on cold open** — Latest with a 30-day window walks ≤10 pages sequentially; a UI recomposition must not re-trigger the query (StateFlow + `loading` guard). Test: LatestViewModel test — second `refresh()` while loading is a no-op.
-2. **Error text is English, structured** — `SourceError` maps to sealed `AppError` (Network/RateLimited/ParseFailed/NotFound/Cancelled) with English `userMessage`; raw site/eyre strings never reach UI. Test: mapping unit test per variant.
+2. **Error text is English, structured** — Kotlin `AndroidException` variants (`AndroidException.Network`, `AndroidException.RateLimited`, `AndroidException.ParseFailed`, `AndroidException.NotFound`, `AndroidException.Cancelled`) map to sealed `AppError` with English `userMessage`; raw site/eyre strings never reach UI. Test: mapping unit test per variant.
 3. **RTL tap-zone mirroring** — `tapZoneAction(x, width, rtl)` pure fn: in RTL, left 40% = NEXT page, right 40% = PREV (mirrored), center = chrome; in LTR unreversed. Test: boundary values x=0, 0.39w, 0.5w, 0.61w, w.
 4. **Zoom state isolation** — scale/offset reset when page index changes; pager composes only the visible page (no beyondBounds). Test: ReaderState pure class unit test.
-5. **Empty/failed chapter** — 0 pages or decrypt failure → error state with retry, never a crash or blank screen. Test: ViewModel with fake service returning SourceError.ParseFailed → Error state.
+5. **Empty/failed chapter** — 0 pages or decrypt failure → error state with retry, never a crash or blank screen. Test: ViewModel with fake service returning `AndroidException.ParseFailed` → Error state.
 
 ---
 
 ### Task 1: Repo scaffold — Gradle + Rust build + CI
 
 **Files:**
-- Create: `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/…/MainActivity.kt`, `app/src/main/java/…/ui/theme/Theme.kt`, `ffi/Cargo.toml`, `ffi/src/lib.rs`, `.github/workflows/android-ci.yml`, `.gitignore`, `README.md`
+- Create: `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`, `gradle/wrapper/gradle-wrapper.properties`, `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`, `app/src/main/AndroidManifest.xml`, `app/src/main/java/com/fishkingsin/manhuagui/MainActivity.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/theme/Theme.kt`, `ffi/Cargo.toml`, `ffi/Cargo.lock`, `ffi/src/lib.rs`, `ffi/uniffi-bindgen.rs`, `.github/workflows/android-ci.yml`, `.gitignore`, `README.md`
+- Modify: `docs/superpowers/plans/2026-11-22-android-phase1.md` to record preflight decisions and exact build commands
 
 **Interfaces:**
-- Produces: an APK showing a placeholder Compose screen, whose `libmanhuagui_ffi.so` (aarch64 + x86_64) is built by Gradle from `ffi/`; `ffi` exposes `#[uniffi::export] fn core_version() -> String` returning the tag it was built from.
-- Gradle task graph: `cargoBuild` (rust plugin) → `generateUniffiBindings` (runs `uniffi-bindgen kotlin`, output into `app/src/main/java/uniffi/`) → `compileDebugKotlin`.
+- Produces: an APK with a placeholder Compose screen and `libmanhuagui_ffi.so` for both Android ABIs. The Rust function `core_version() -> String` returns `"ffi-stub"` in Task 1 and `"v0.1.1-core"` after Task 2 links the core.
+- Gradle task graph:
+  - `cargoBuild` cross-compiles the Rust crate for Android.
+  - `buildHostFfi` runs `cargo build --manifest-path ffi/Cargo.toml --lib` for the host.
+  - `generateUniffiBindings` depends on `buildHostFfi` and runs `cargo run --manifest-path ffi/Cargo.toml --features uniffi-bindgen --bin uniffi-bindgen -- generate --library <host-cdylib> --language kotlin --out-dir app/build/generated/source/uniffi`.
+  - `compileDebugKotlin` depends on generated sources and Android `cargoBuild`.
 
-- [ ] **Step 1: Scaffold the Gradle project** — versions catalog pinning Kotlin 2.x, Compose BOM, Coil 3, Navigation-Compose; `minSdk 29`, `targetSdk 35`; `MainActivity` renders a centered `Text("manhuagui ${coreVersion()}")` from the generated binding.
-- [ ] **Step 2: Wire the Rust build** — `org.mozilla.rust-android-gradle` plugin config (module `ffi`, targets aarch64 + x86_64, profile debug); `ffi` deps: `uniffi = { version = "0.28", features = ["build"] }`, dev `uniffi-bindgen` via `uniffi` cli feature; `uniffi::setup_scaffolding!("manhuagui_ffi");` in lib.rs; `generateUniffiBindings` Gradle task invoking `cargo run -p uniffi-bindgen kotlin`… or the crate's `uniffi-bindgen` binary — commit generated bindings are NOT committed.
-- [ ] **Step 3: Verify** — `./gradlew assembleDebug` → APK contains both .so files (`unzip -l` check `lib/*/libmanhuagui_ffi.so` ×2) and installs/launches on emulator or device (device optional this task; emulator enough). `cargo test -p manhuagui-ffi` green.
-- [ ] **Step 4: CI** — workflow: rust toolchain + JDK 17 + gradle `assembleDebug` + `cargo test -p manhuagui-ffi`; commit README (build + `adb install` instructions).
-- [ ] **Step 5: Commit** — `feat: android scaffold with rust/uniFFI build`.
+Task 1 preflight corrections:
 
-### Task 2: Fork-side `uniffi` feature + `AndroidLibrary` FFI surface
+- UniFFI must inspect a host cdylib. macOS cannot load the Android `.so` to read UniFFI metadata. Run the UniFFI CLI with `ffi/` as its working directory and `Cargo.toml` as its manifest path because UniFFI 0.28.3 runs `cargo metadata` relative to the current directory, and this repository has no root Cargo manifest.
+- Enable AndroidX in `gradle.properties`; otherwise AGP rejects the AndroidX Compose dependencies.
+- Pin Activity Compose to 1.10.1 because 1.11.0 requires compile SDK 36, while this task pins compile SDK 35.
+- Set Java and Kotlin bytecode targets to 17 because KGP defaults to the local JDK 21 target while AGP defaults Java to 8.
+- Declare Rust crate files as `buildHostFfi` inputs and the host cdylib as a binding-generation input so Gradle does not skip stale outputs.
+
+- [ ] **Step 1: Scaffold the Gradle project.** Pin the wrapper to Gradle 8.13, AGP to 8.13.2, and the Kotlin Gradle plugin to 2.2.10. Add Compose BOM, Coil 3, and Navigation-Compose. Set `minSdk 29` and `targetSdk 35`. Add the JNA 5.12.0 AAR required by generated UniFFI Kotlin bindings. Create `MainActivity` that imports `uniffi.manhuagui_ffi.coreVersion` and renders `Text("manhuagui ${coreVersion()}")`.
+- [ ] **Step 2: Configure Android Rust builds.** Apply plugin `org.mozilla.rust-android-gradle.rust-android` version `0.10.0`. In `app/build.gradle.kts`, set `cargo.module` to `../ffi`, `cargo.libname` to `manhuagui_ffi`, `cargo.targets` to `listOf("arm64", "x86_64")`, and `cargo.profile` to `debug`. In `ffi/Cargo.toml`, set `[lib] name = "manhuagui_ffi", crate-type = ["cdylib", "rlib"]`.
+- [ ] **Step 3: Write and run the failing Rust test.** Add a unit test in `ffi/src/lib.rs` that asserts `core_version()` returns `"ffi-stub"`. Run `cargo test --manifest-path ffi/Cargo.toml`. Confirm it fails because the function is missing.
+- [ ] **Step 4: Implement the Rust smoke function.** Add `uniffi = { version = "0.28.3", features = ["tokio"] }`, the Cargo feature `uniffi-bindgen = ["uniffi/cli"]`, and a `[[bin]]` named `uniffi-bindgen`. Its `main` calls `uniffi::uniffi_bindgen_main()`. Call `uniffi::setup_scaffolding!("manhuagui_ffi")` and implement `core_version() -> String` to return `"ffi-stub"`. Task 2 changes this value to `"v0.1.1-core"` after linking the core. Re-run the Rust test and confirm it passes.
+- [ ] **Step 5: Generate UniFFI bindings.** Build a host cdylib before running `uniffi-bindgen generate --library`; do not pass an Android `.so` to the host tool. Add the generated source directory to the app source set. Keep generated Kotlin under `app/build/`; do not commit it.
+- [ ] **Step 6: Verify the APK.** Run `./gradlew assembleDebug`. Confirm the APK includes `libmanhuagui_ffi.so` for both `arm64-v8a` and `x86_64`. Install and launch it on an emulator or device if one is available. From the repo root, run `cargo test --manifest-path ffi/Cargo.toml`.
+- [ ] **Step 7: Add CI and build instructions.** Pin JDK 17, Android platform/build-tools 35, and NDK 27.2.12479018 in CI. Install Rust targets `aarch64-linux-android` and `x86_64-linux-android`. Run `./gradlew assembleDebug` and `cargo test --manifest-path ffi/Cargo.toml`. Document the JDK, Android SDK, and Rust prerequisites and the `adb install` command in README.
+- [ ] **Step 8: Commit.** Use `feat: android scaffold with Rust and UniFFI build`.
+
+### Task 2: AndroidLibrary FFI surface and DTO mapping
 
 **Files:**
-- Modify (FORK repo `fishkingsin/manhuagui-downloader`, new branch `uniffi-feature`): `core/source-api/Cargo.toml`, `core/source-api/src/{types,source,error,config}.rs`
-- Create: `ffi/src/library.rs` (android repo)
-- Test: fork `core/source-api/tests/uniffi_record_test.rs` (serde+uniffi derive coexistence); android `ffi/tests/library_test.rs`
+- Modify (fork repo): tag the already tested TLS-enabled core commit as `v0.1.1-core`; no source files change.
+- Modify (Android repo): `ffi/Cargo.toml`, `ffi/Cargo.lock`, `ffi/src/lib.rs`
+- Create (Android repo): `ffi/src/{library.rs,types.rs}`, `ffi/tests/library_test.rs`
 
 **Interfaces:**
-- Fork: `uniffi = { version = "0.28", optional = true }` feature on source-api; `#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]` on `ComicSummary`, `BrowseResult`, `ComicInSearch`, `SearchResult`, `Comic`, `ChapterInfo`, `PageRef`, `ChapterPages`, `ComicId`; `#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]` on `UpdateWindow`, `DownloadTaskState`?? (not needed phase 1 — only what crosses); `#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]` on `UpdateWindow` and `SourceError` becomes `#[cfg_attr(feature="uniffi", derive(uniffi::Error))]` (variants carry `message: String`). Tag `v0.1.1-core` (merge to fork main, push tag).
+- The fork's main branch already contains the TLS-enabled core commit `d3a3d36`. After verifying `cargo test --workspace`, tag that commit `v0.1.1-core` and push the tag. Do not change core source code or add UniFFI dependencies to source-api.
+- `ffi/src/types.rs` defines the UniFFI API types. `AndroidUpdateWindow` mirrors the four core window choices. Rust `AndroidError` has `Network`, `RateLimited`, `ParseFailed`, `NotFound`, and `Cancelled` variants, each with a detail string.
+- UniFFI 0.28.3 generates Rust `AndroidError` as Kotlin `AndroidException`, with nested variants such as `AndroidException.Network`. Kotlin callers use the generated `AndroidException` name.
+- `ComicListItem` contains `comic_id`, `title`, `cover_url`, `status_text`, `update_text: Option<String>`, and `rating: Option<f32>`. `AndroidLibrary` maps `source_api::SourceError` to `AndroidError` and maps `AndroidUpdateWindow` to the core `UpdateWindow`.
+- `BrowsePage` contains `items: Vec<ComicListItem>`, `page`, and `total_pages`. `SearchPage` contains `items: Vec<ComicListItem>`, `current`, and `total`.
+- `ChapterItem` contains `chapter_id`, `chapter_title`, `chapter_size`, `group_name`, `group_size`, and `order: f64`.
+- `ComicDetails` contains the comic's display metadata and `chapters: Vec<ChapterItem>`.
+- `ImagePage` contains `url` and `headers: HashMap<String, String>`. `ChapterPagesResult` contains `pages: Vec<ImagePage>`, `prev_chapter_id`, and `next_chapter_id`.
+- `AndroidLibrary` maps core domain objects to these records at the FFI boundary.
 - Android `ffi`: `pub struct AndroidLibrary { inner: Library }` with `#[uniffi::export(async_runtime = "tokio")]`:
-  - `#[uniffi::constructor] fn new(cookie: String, proxy_mode: String, proxy_host: String, proxy_port: u16) -> AndroidLibrary` (builds `CoreConfig` defaults + cookie/proxy; registers `ManhuaguiSource`)
-  - `async fn browse_latest(&self, window: UpdateWindow, start_page: i32, max_pages: i32) -> Result<Vec<ComicSummary>, SourceError>` (delegates to `browse_within`, which internally pages `browse_latest`)
-  - `async fn search(&self, keyword: String, page: i32) -> Result<SearchResult, SourceError>`
-  - `async fn get_comic(&self, native_id: i64) -> Result<Comic, SourceError>`
-  - `async fn get_chapter_pages(&self, native_id: i64, chapter_id: i64) -> Result<ChapterPages, SourceError>`
+  - `#[uniffi::constructor] fn new() -> AndroidLibrary` (builds `CoreConfig::default()`, sets mobile timeouts to 15s API / 30s image, keeps cookie empty and system proxy, registers `ManhuaguiSource`; v1 has no login or proxy UI)
+  - Rust-only test seam `pub fn with_library(library: Library) -> AndroidLibrary` lives in a separate, non-UniFFI `impl` block so integration tests can inject `MockSource`; it is not exported through UniFFI.
+  - `async fn browse_within(&self, window: AndroidUpdateWindow, start_page: i32, max_pages: i32) -> Result<Vec<ComicListItem>, AndroidError>`
+  - `async fn browse_latest_page(&self, page: i32) -> Result<BrowsePage, AndroidError>`
+  - `async fn search(&self, keyword: String, page: i32) -> Result<SearchPage, AndroidError>`
+  - `async fn get_comic(&self, native_id: i64) -> Result<ComicDetails, AndroidError>`
+  - `async fn get_chapter_pages(&self, native_id: i64, chapter_id: i64) -> Result<ChapterPagesResult, AndroidError>`
 
-- [ ] **Step 1 (fork):** failing test — with `--features uniffi`, records derive and round-trip through uniffi metadata (compile-level test + a serde round-trip proving attrs coexist); RED → implement cfg_attrs → GREEN; `cargo test --workspace` (feature off) still green; branch `uniffi-feature`, PR-less merge to fork main, tag `v0.1.1-core`, push.
-- [ ] **Step 2 (android):** bump ffi git dep to `v0.1.1-core`; failing rust test — `AndroidLibrary` with a registered `MockSource` (fixture pages, like core's service_test): browse_latest Days7 returns filtered items; search/get_comic/get_chapter_pages map through; error variant propagates. RED → implement `library.rs` → GREEN (`cargo test -p manhuagui-ffi`). Regenerate bindings; assembleDebug green.
-- [ ] **Step 3: Commit** — `feat(ffi): AndroidLibrary surface over core (fork v0.1.1-core)`.
+- [ ] **Step 1: Verify and tag the core.** In the downloader repository, run `cargo test --workspace` at commit `d3a3d36`. Create and push the `v0.1.1-core` tag at that commit. Do not change core source files.
+- [ ] **Step 2: Write failing Android FFI tests.** Add tests for source-error conversion, window conversion, browse filtering, page metadata, search/detail/page mapping, and error propagation through `AndroidError`. Inject a `MockSource` through `with_library`. Confirm RED before implementing the FFI facade.
+- [ ] **Step 3: Implement the Android FFI facade.** Add git dependencies on `source-api`, `source-manhuagui`, and `library`, all pinned to `v0.1.1-core`. Define the UniFFI DTOs and conversions in `ffi/src/types.rs`. Implement `AndroidLibrary` in `ffi/src/library.rs`. Run `cargo test --manifest-path ffi/Cargo.toml`, regenerate bindings, and run `./gradlew assembleDebug`.
+- [ ] **Step 4: Commit.** Use `feat(ffi): add AndroidLibrary surface over core`.
 
-### Task 3: Kotlin service layer + Coil PageRef pipeline
+### Task 3: Kotlin service layer + Coil ImagePage pipeline
 
 **Files:**
-- Create: `app/src/main/java/…/core/LibraryService.kt`, `app/src/main/java/…/core/AppError.kt`, `app/src/main/java/…/core/PageImages.kt`, `app/src/main/java/…/App.kt` (Application: ImageLoader + AppContainer)
-- Test: `app/src/test/java/…/core/AppErrorTest.kt`, `app/src/test/java/…/core/PageImagesTest.kt`
+- Modify: `app/build.gradle.kts` (add `kotlinx-coroutines-core:1.9.0`, `kotlinx-coroutines-test:1.9.0`, `junit:junit:4.13.2`, and `coil-network-okhttp:3.3.0`)
+- Create: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/AppError.kt`, `app/src/main/java/com/fishkingsin/manhuagui/core/PageImages.kt`, `app/src/main/java/com/fishkingsin/manhuagui/App.kt` (Application owns `ImageLoader` and `AppContainer`)
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/core/AppErrorTest.kt`, `app/src/test/java/com/fishkingsin/manhuagui/core/PageImagesTest.kt`
 
 **Interfaces:**
-- `sealed interface AppError { val userMessage: String; data class Network(…); RateLimited; ParseFailed; NotFound; Cancelled; data class Unknown(String) }` — `fun SourceError.toAppError(): AppError` maps variant → English message ("Couldn't reach the site", "The site is rate-limiting — try later", "Site format changed — update the app", "Not found", "Cancelled").
-- `class LibraryService(private val library: AndroidLibrary, private val io: CoroutineDispatcher)` — suspend fns returning `Result<T>` (kotlin.Result) wrapping the UniFFI calls on `io`; `fun interface` nothing else.
-- `object PageImages`: `fun modelFor(page: PageRef): ImageRequest.Builder.() -> Unit` applying `.httpHeaders { set("Referer", …) for each header }` and `memoryCacheKey(page.url)`; Coil 3 `ImageLoader` built in `App` with `diskCache` 512MB, `crossfade(false)`.
+- Define `sealed interface AppError` with `userMessage: String` and data classes `Network`, `RateLimited`, `ParseFailed`, `NotFound`, `Cancelled`, and `Unknown`. Each data class carries a `detail: String`.
+- `AndroidException.toAppError()` maps each generated variant to a fixed English message. Use "Couldn't reach the site", "The site is rate-limiting. Try later.", "The site format changed. Update the app.", "Not found.", or "Cancelled." Raw site error text must not appear in UI copy.
+- `LibraryService` wraps `AndroidLibrary` calls in `withContext(io)` and returns `Result<T>`.
+- Its suspend methods are `browseWithin(window, startPage, maxPages): Result<List<ComicListItem>>`, `browseLatestPage(page): Result<BrowsePage>`, `search(keyword, page): Result<SearchPage>`, `getComic(nativeId): Result<ComicDetails>`, and `getChapterPages(nativeId, chapterId): Result<ChapterPagesResult>`.
+- `object PageImages`: `fun headersFor(page: ImagePage): Map<String, String>` returns the page's headers; `fun modelFor(page: ImagePage): ImageRequest.Builder.() -> Unit` applies those headers to that request and sets `memoryCacheKey(page.url)`. Coil 3 `ImageLoader` uses the OkHttp network module, a 512MB disk cache, a memory cache capped near 25% of the app heap, and `crossfade(false)`.
 - Consumes: generated `uniffi.manhuagui_ffi.*` types.
 
-- [ ] **Step 1: Failing tests** — AppErrorTest: each SourceError variant → expected English userMessage (fake the generated types by constructing them — generated classes are constructible); PageImagesTest: PageRef with Referer header → HttpHeaders contains it; url key stable.
+- [ ] **Step 1: Failing tests** — AppErrorTest: construct each generated variant with its detail (`AndroidException.Network(detail = "..."), AndroidException.RateLimited(detail = "..."), AndroidException.ParseFailed(detail = "..."), AndroidException.NotFound(detail = "..."), AndroidException.Cancelled(detail = "...")`) and assert its English `userMessage`; PageImagesTest: `headersFor` preserves the ImagePage Referer exactly and the request cache key uses the URL.
 - [ ] **Step 2: RED → implement → GREEN**; `./gradlew testDebugUnitTest` green.
 - [ ] **Step 3: Commit** — `feat: service layer + page image pipeline`.
 
 ### Task 4: Latest screen (window-filtered browse)
 
 **Files:**
-- Create: `app/src/main/java/…/ui/latest/LatestViewModel.kt`, `LatestScreen.kt`, shared `ui/comic/ComicCard.kt`, `ui/AppNav.kt`
-- Test: `app/src/test/java/…/ui/latest/LatestViewModelTest.kt`
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt` (accept `AndroidLibraryInterface` so unit tests can inject a pure-Kotlin fake without loading JNA), `app/src/main/java/com/fishkingsin/manhuagui/MainActivity.kt` (host `AppNav`)
+- Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/latest/LatestViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/latest/LatestScreen.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/comic/ComicCard.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/latest/LatestViewModelTest.kt`
 
 **Interfaces:**
-- `LatestViewModel(service)` — state: `data class LatestUiState(window: UpdateWindow = Days7, loading: Boolean, items: List<ComicSummary>, error: AppError?, endReached: Boolean)`; `refresh()` (guarded by `loading` — Review Focus 1), `setWindow(w)`, `loadMore()` (All mode only: appends next `browse_latest` page; Days modes load once via `browse_latest(window, 1, 10)`).
-- Nav routes: `"latest"`, `"search"`, `"comic/{nativeId}"`, `"reader/{nativeId}/{chapterId}"`.
-- `ComicCard`: cover (Coil, no crossfade), title (2-line ellipsis), status_line + updated_on chip; no elevation; 1dp border.
+- `LatestViewModel(service)` — state: `data class LatestUiState(window: AndroidUpdateWindow = AndroidUpdateWindow.DAYS7, loading: Boolean = false, items: List<ComicListItem> = emptyList(), error: AppError? = null, nextPage: Int = 1, totalPages: Int = 0, endReached: Boolean = false)`; `refresh()` (guarded by `loading` — Review Focus 1), `setWindow(w: AndroidUpdateWindow)`, `loadMore()` (`AndroidUpdateWindow.ALL` mode only: appends `browseLatestPage(nextPage)` using the returned `BrowsePage.page` / `BrowsePage.totalPages` metadata; `DAYS7` / `DAYS15` / `DAYS30` modes load once via `browseWithin(window, 1, 10)`).
+- Nav routes: `"latest"`, `"search"`, `"comic/{nativeId}"`, `"reader/{nativeId}/{chapterId}"`. In Task 4, `"latest"` renders `LatestScreen`; `"search"`, `"comic/{nativeId}"`, and `"reader/{nativeId}/{chapterId}"` are registered in `AppNav` as placeholder destinations until Tasks 5 and 6 replace them.
+- `ComicCard`: consumes `ComicListItem` and `ImageLoader`; cover (`AsyncImage` with the app's `imageLoader`, no crossfade), `title` (2-line ellipsis), `statusText` + optional `updateText` chip; no elevation; 1dp border.
 
-- [ ] **Step 1: Failing ViewModel tests** — fake `LibraryService`: setWindow(Days30) → loading then items; refresh while loading = no second service call; loadMore in All appends and sets endReached at total_pages; error → AppError surfaced, items cleared. RED → implement → GREEN.
-- [ ] **Step 2: Screen + nav wired**; assembleDebug; manual emulator smoke (window chips switch, cards scroll).
+- [ ] **Step 1: Failing ViewModel tests** — fake `AndroidLibraryInterface` injected into `LibraryService`: `setWindow(AndroidUpdateWindow.DAYS30)` → loading then items; `refresh()` while loading = no second service call; `loadMore()` in `AndroidUpdateWindow.ALL` appends the next `BrowsePage.items`, advances `nextPage`, and sets `endReached` when `page >= totalPages`; error → `AppError` surfaced, items cleared. RED → implement → GREEN.
+- [ ] **Step 2: Screen + nav wired**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: latest screen with 7/15/30-day windows`.
 
 ### Task 5: Search + Detail screens
 
 **Files:**
-- Create: `app/src/main/java/…/ui/search/SearchViewModel.kt`+`SearchScreen.kt`, `app/src/main/java/…/ui/detail/DetailViewModel.kt`+`DetailScreen.kt`
-- Test: `app/src/test/java/…/ui/{search/SearchViewModelTest,detail/DetailViewModelTest}.kt`
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
+- Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/search/SearchViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/search/SearchScreen.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/detail/DetailViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/detail/DetailScreen.kt`
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/search/SearchViewModelTest.kt` and `app/src/test/java/com/fishkingsin/manhuagui/ui/detail/DetailViewModelTest.kt`
 
 **Interfaces:**
-- SearchViewModel: `query`, `results`, `loading`, `error`; `submit()` → `service.search(query, 1)`; result cards reuse ComicCard → comic route.
-- DetailViewModel(nativeId): `comic: Comic?`, `chapters: List<ChapterInfo>` displayed newest-first (site order reversed), `loading/error`; tap chapter → reader route. No bookmark button yet (phase 2).
+- SearchViewModel: `query`, `results: SearchPage?`, `loading`, `error`; `submit()` → `service.search(query, 1)`; `SearchPage.items` reuse the shared `ComicCard` UI → comic route.
+- DetailViewModel(nativeId): `comic: ComicDetails?`, `chapters: List<ChapterItem>` sorted by `groupSize` descending, then `groupName` ascending for stable ties, then `order` descending within each group. This puts the newest chapter first without relying on HashMap iteration order. Tap a chapter to open the reader route. No bookmark button yet (phase 2).
 
-- [ ] **Step 1: Failing tests** (fake service; newest-first ordering assertion; error paths) → RED → implement → GREEN.
-- [ ] **Step 2: Screens + nav**; assembleDebug; emulator smoke.
+- [ ] **Step 1: Failing tests**. Use a fake `AndroidLibraryInterface` with `LibraryService`. Assert groups sort by descending `groupSize`, ties sort by `groupName` ascending, and chapters sort by descending `order` within a group. Test error paths. Run RED before implementation, then GREEN.
+- [ ] **Step 2: Screens + nav**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: search and comic detail screens`.
 
 ### Task 6: Reader screen (streaming, RTL, tap zones, zoom)
 
 **Files:**
-- Create: `app/src/main/java/…/ui/reader/ReaderState.kt`, `ReaderViewModel.kt`, `ReaderScreen.kt`
-- Test: `app/src/test/java/…/ui/reader/{ReaderStateTest,ReaderViewModelTest}.kt`
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
+- Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderState.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderScreen.kt`
+- Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/reader/ReaderStateTest.kt` and `app/src/test/java/com/fishkingsin/manhuagui/ui/reader/ReaderViewModelTest.kt`
 
 **Interfaces:**
 - `ReaderState` (pure): `pageIndex`, `zoom: Float (1f..4f)`, `offset: Offset`; `fun onPagerPage(i)`: resets zoom/offset (Review Focus 4); `fun tapZoneAction(x: Float, width: Float, rtl: Boolean): TapAction` where `TapAction = PrevPage | NextPage | ToggleChrome` (Review Focus 3: left 40% / center 20% / right 40%, mirrored in RTL).
-- ReaderViewModel(nativeId, chapterId): loads `ChapterPages`; exposes pages, index, chromeVisible, error+retry; `turnPage(delta)` clamps and auto-advances chapter at ends using `prev_chapter_id`/`next_chapter_id` (via nav to new reader route).
-- ReaderScreen: `HorizontalPager` (`LayoutDirection.Rtl`), `AsyncImage(page.url)` full-res (no size constraint — zoom pipeline), pinch (`detectTransformGestures`: scale 1–4, pan clamped) + double-tap toggles 1f/2f (instant, no animation), tap-zone overlay `Modifier.pointerInput` calling `tapZoneAction`, chrome = minimal top bar (chapter title, page i/n, back), `FLAG_KEEP_SCREEN_ON` while resumed, system back works.
-- Page model built via `PageImages.modelFor(pageRef)`.
+- ReaderViewModel(nativeId, chapterId): loads `ChapterPagesResult`; exposes `ImagePage`s, index, chromeVisible, error+retry; `turnPage(delta)` clamps and emits `ReaderEffect.OpenChapter(id)` at chapter ends using `prevChapterId`/`nextChapterId`. `ReaderScreen` collects effects and navigates to the new reader route; ViewModel has no NavController dependency.
+- ReaderScreen: `HorizontalPager` (`LayoutDirection.Rtl`), `AsyncImage` with `ImageRequest` built via `PageImages.modelFor(imagePage)` and the app's `imageLoader`, full-res (no size constraint — zoom pipeline), pinch (`detectTransformGestures`: scale 1–4, pan clamped) + double-tap toggles 1f/2f (instant, no animation), tap-zone overlay `Modifier.pointerInput` calling `tapZoneAction`, chrome = minimal top bar (chapter title or chapter id, page i/n, back), `FLAG_KEEP_SCREEN_ON` while resumed, system back works.
+- Page model built via `PageImages.modelFor(imagePage: ImagePage)`.
 
-- [ ] **Step 1: Failing tests** — ReaderStateTest (tap-zone boundaries incl. mirrored RTL, zoom reset on page change, clamp); ReaderViewModelTest (fake service: load ok, load fail → Error+retry clears error; 0 pages → error state — Review Focus 5; advance at last page with next id). RED → implement → GREEN.
-- [ ] **Step 2: Screen**; assembleDebug.
+- [ ] **Step 1: Failing tests** — ReaderStateTest (tap-zone boundaries incl. mirrored RTL, zoom reset on page change, clamp); ReaderViewModelTest (fake service: load ok, load fail → Error+retry clears error; 0 pages → error state — Review Focus 5; last-page turn emits OpenChapter when next id exists). RED → implement → GREEN.
+- [ ] **Step 2: Screen**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: streaming RTL reader with tap zones and zoom`.
 
 ### Task 7: E-ink polish pass + device checklist + docs
