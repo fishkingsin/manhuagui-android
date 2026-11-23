@@ -15,6 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.manhuagui_ffi.AndroidException
 import uniffi.manhuagui_ffi.AndroidLibraryInterface
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 import uniffi.manhuagui_ffi.BrowsePage
@@ -94,6 +95,36 @@ class ReaderViewModelTest {
         assertNull(viewModel.state.value.error)
         assertFalse(viewModel.state.value.loading)
         assertEquals(2, library.chapterQueries.size)
+    }
+
+    @Test
+    fun parseFailedMapsToUserErrorAndRetryLoadsPages() = runTest {
+        val page = imagePage(1)
+        var shouldFail = true
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ ->
+                if (shouldFail) throw AndroidException.ParseFailed(detail = "decrypt failed")
+                ChapterPagesResult(listOf(page), null, null)
+            }
+        }
+        val viewModel = viewModel(library, this)
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals(AppError.ParseFailed("decrypt failed"), viewModel.state.value.error)
+        assertEquals("The site format changed. Update the app.", viewModel.state.value.error?.userMessage)
+
+        shouldFail = false
+        viewModel.retry()
+
+        assertNull(viewModel.state.value.error)
+        assertTrue(viewModel.state.value.loading)
+        runCurrent()
+
+        assertEquals(listOf(page), viewModel.state.value.pages)
+        assertNull(viewModel.state.value.error)
+        assertFalse(viewModel.state.value.loading)
     }
 
     @Test

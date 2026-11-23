@@ -1,10 +1,15 @@
 package com.fishkingsin.manhuagui.ui.reader
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Text
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -32,6 +40,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -45,11 +54,12 @@ import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
-import coil3.size.Size
+import coil3.size.Size as CoilSize
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.PageImages
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.min
 import uniffi.manhuagui_ffi.ImagePage
 
 @Composable
@@ -67,11 +77,34 @@ fun ReaderScreen(
     }
     val uiState by viewModel.state.collectAsState()
     var readerState by remember(viewModel) { mutableStateOf(ReaderState()) }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
+    val window = (context as? Activity)?.window
 
-    DisposableEffect(view) {
-        view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+    DisposableEffect(lifecycleOwner, view, window) {
+        val keepScreenOnFlag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        fun setKeepScreenOn(enabled: Boolean) {
+            view.keepScreenOn = enabled
+            if (enabled) {
+                window?.addFlags(keepScreenOnFlag)
+            } else {
+                window?.clearFlags(keepScreenOnFlag)
+            }
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> setKeepScreenOn(true)
+                Lifecycle.Event.ON_PAUSE -> setKeepScreenOn(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        setKeepScreenOn(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            setKeepScreenOn(false)
+        }
     }
 
     LaunchedEffect(viewModel) {
@@ -131,6 +164,7 @@ fun ReaderScreen(
                     HorizontalPager(
                         state = pagerState,
                         beyondViewportPageCount = 0,
+                        userScrollEnabled = readerState.zoom <= 1f,
                         modifier = Modifier.fillMaxSize(),
                     ) { pageIndex ->
                         ReaderPage(
@@ -168,42 +202,57 @@ private fun ReaderPage(
     onToggleChrome: () -> Unit,
 ) {
     val context = LocalContext.current
+    var intrinsicSize by remember(page.url) { mutableStateOf(GeometrySize.Unspecified) }
     val currentReaderState by rememberUpdatedState(readerState)
+    val currentIntrinsicSize by rememberUpdatedState(intrinsicSize)
     val updateReaderState by rememberUpdatedState(onReaderStateChange)
     val turnPage by rememberUpdatedState(onTurnPage)
     val toggleChrome by rememberUpdatedState(onToggleChrome)
     val request = remember(context, page) {
         ImageRequest.Builder(context)
             .data(page.url)
-            .size(Size.ORIGINAL)
+            .size(CoilSize.ORIGINAL)
             .apply(PageImages.modelFor(page))
             .build()
     }
 
-    AsyncImage(
-        model = request,
-        imageLoader = imageLoader,
-        contentDescription = null,
-        contentScale = ContentScale.Fit,
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                scaleX = readerState.zoom
-                scaleY = readerState.zoom
-                translationX = readerState.offset.x
-                translationY = readerState.offset.y
-            }
             .pointerInput(page.url) {
-                detectTransformGestures { _, pan, zoomChange, _ ->
-                    val state = currentReaderState
-                    val zoom = (state.zoom * zoomChange).coerceIn(1f, 4f)
-                    val maxX = size.width * (zoom - 1f) / 2f
-                    val maxY = size.height * (zoom - 1f) / 2f
-                    val offset = Offset(
-                        x = (state.offset.x + pan.x).coerceIn(-maxX, maxX),
-                        y = (state.offset.y + pan.y).coerceIn(-maxY, maxY),
-                    )
-                    updateReaderState(state.withTransform(zoom, offset))
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val pressedChanges = event.changes.filter { it.pressed }
+                        if (pressedChanges.size > 1 || currentReaderState.zoom > 1f) {
+                            val state = currentReaderState
+                            val zoom = (state.zoom * event.calculateZoom()).coerceIn(1f, 4f)
+                            val pan = event.calculatePan()
+                            val viewportWidth = size.width.toFloat()
+                            val viewportHeight = size.height.toFloat()
+                            val intrinsic = currentIntrinsicSize
+                            val (fittedWidth, fittedHeight) = if (
+                                intrinsic.width > 0f && intrinsic.height > 0f
+                            ) {
+                                val fitScale = min(
+                                    viewportWidth / intrinsic.width,
+                                    viewportHeight / intrinsic.height,
+                                )
+                                intrinsic.width * fitScale to intrinsic.height * fitScale
+                            } else {
+                                viewportWidth to viewportHeight
+                            }
+                            val maxX = ((fittedWidth * zoom - viewportWidth).coerceAtLeast(0f)) / 2f
+                            val maxY = ((fittedHeight * zoom - viewportHeight).coerceAtLeast(0f)) / 2f
+                            val offset = Offset(
+                                x = (state.offset.x + pan.x).coerceIn(-maxX, maxX),
+                                y = (state.offset.y + pan.y).coerceIn(-maxY, maxY),
+                            )
+                            event.changes.forEach { it.consume() }
+                            updateReaderState(state.withTransform(zoom, offset))
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             }
             .pointerInput(page.url) {
@@ -220,7 +269,23 @@ private fun ReaderPage(
                     },
                 )
             },
-    )
+    ) {
+        AsyncImage(
+            model = request,
+            imageLoader = imageLoader,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            onSuccess = { state -> intrinsicSize = state.painter.intrinsicSize },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = readerState.zoom
+                    scaleY = readerState.zoom
+                    translationX = readerState.offset.x
+                    translationY = readerState.offset.y
+                },
+        )
+    }
 }
 
 @Composable
