@@ -4,7 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import uniffi.manhuagui_ffi.AndroidLibrary
+import uniffi.manhuagui_ffi.AndroidLibraryInterface
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 import uniffi.manhuagui_ffi.BrowsePage
 import uniffi.manhuagui_ffi.ChapterPagesResult
@@ -13,7 +13,7 @@ import uniffi.manhuagui_ffi.ComicListItem
 import uniffi.manhuagui_ffi.SearchPage
 
 class LibraryService(
-    private val library: AndroidLibrary,
+    private val library: AndroidLibraryInterface,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun browseWithin(
