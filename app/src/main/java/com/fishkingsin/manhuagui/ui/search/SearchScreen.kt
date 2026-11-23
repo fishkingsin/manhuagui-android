@@ -91,7 +91,11 @@ fun SearchScreen(
                     }
                 },
             )
-            EInkButton(label = "Search", onClick = viewModel::submit)
+            EInkButton(
+                label = "Search",
+                onClick = viewModel::submit,
+                enabled = !uiState.loading && uiState.query.isNotBlank(),
+            )
         }
         when {
             uiState.loading -> Message(Modifier.weight(1f), "Loading…")
@@ -127,13 +131,18 @@ fun SearchScreen(
 }
 
 @Composable
-private fun EInkButton(label: String, onClick: () -> Unit) {
+private fun EInkButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
     Box(
         modifier = Modifier
             .height(48.dp)
             .background(Color.White)
             .border(1.dp, Color.Black, RectangleShape)
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
