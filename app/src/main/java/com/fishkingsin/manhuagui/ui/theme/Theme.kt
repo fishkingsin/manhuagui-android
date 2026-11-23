@@ -4,8 +4,8 @@ import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -15,25 +15,60 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
 
-private val LightColorScheme = lightColorScheme(
-    background = Color.White,
-    onBackground = Color.Black,
-    surface = Color.White,
-    onSurface = Color.Black,
-    primary = Color.Black,
-    onPrimary = Color.White,
-    outline = Color.Black,
-)
+private fun monochromeColorScheme(background: Color, foreground: Color): ColorScheme =
+    lightColorScheme(
+        primary = foreground,
+        onPrimary = background,
+        primaryContainer = background,
+        onPrimaryContainer = foreground,
+        inversePrimary = background,
+        primaryFixed = foreground,
+        primaryFixedDim = foreground,
+        onPrimaryFixed = background,
+        onPrimaryFixedVariant = background,
+        secondary = foreground,
+        onSecondary = background,
+        secondaryContainer = background,
+        onSecondaryContainer = foreground,
+        secondaryFixed = foreground,
+        secondaryFixedDim = foreground,
+        onSecondaryFixed = background,
+        onSecondaryFixedVariant = background,
+        tertiary = foreground,
+        onTertiary = background,
+        tertiaryContainer = background,
+        onTertiaryContainer = foreground,
+        tertiaryFixed = foreground,
+        tertiaryFixedDim = foreground,
+        onTertiaryFixed = background,
+        onTertiaryFixedVariant = background,
+        background = background,
+        onBackground = foreground,
+        surface = background,
+        onSurface = foreground,
+        surfaceVariant = background,
+        onSurfaceVariant = foreground,
+        surfaceTint = foreground,
+        inverseSurface = foreground,
+        inverseOnSurface = background,
+        error = foreground,
+        onError = background,
+        errorContainer = background,
+        onErrorContainer = foreground,
+        outline = foreground,
+        outlineVariant = foreground,
+        scrim = foreground,
+        surfaceBright = background,
+        surfaceDim = background,
+        surfaceContainer = background,
+        surfaceContainerHigh = background,
+        surfaceContainerHighest = background,
+        surfaceContainerLow = background,
+        surfaceContainerLowest = background,
+    )
 
-private val DarkColorScheme = darkColorScheme(
-    background = Color.Black,
-    onBackground = Color.White,
-    surface = Color.Black,
-    onSurface = Color.White,
-    primary = Color.White,
-    onPrimary = Color.Black,
-    outline = Color.White,
-)
+private val LightColorScheme = monochromeColorScheme(Color.White, Color.Black)
+private val DarkColorScheme = monochromeColorScheme(Color.Black, Color.White)
 
 private object NoOpIndication : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode =
