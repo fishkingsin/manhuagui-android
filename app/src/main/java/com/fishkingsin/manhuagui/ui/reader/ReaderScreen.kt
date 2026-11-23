@@ -84,6 +84,7 @@ fun ReaderScreen(
     val uiState by viewModel.state.collectAsState()
     var readerState by remember(viewModel) { mutableStateOf(ReaderState()) }
     val context = LocalContext.current
+    val prefetcher = remember(context, imageLoader) { PagePrefetcher.create(context, imageLoader) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
     val focusRequester = remember { FocusRequester() }
@@ -122,6 +123,9 @@ fun ReaderScreen(
     LaunchedEffect(viewModel) {
         viewModel.load()
     }
+    LaunchedEffect(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection) {
+        prefetcher.onPageTurn(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection)
+    }
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -137,11 +141,14 @@ fun ReaderScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                Log.i(
-                    "ReaderKey",
-                    "action=${event.nativeKeyEvent.action} keyCode=${event.nativeKeyEvent.keyCode}",
+                Log.i("ReaderKey", "action=${event.nativeKeyEvent.action} keyCode=${event.nativeKeyEvent.keyCode}")
+                val keyResult = handleReaderKey(
+                    event.nativeKeyEvent.keyCode,
+                    event.nativeKeyEvent.action,
+                    rtl = true,
                 )
-                false
+                if (keyResult.pageDelta != null) viewModel.turnPage(keyResult.pageDelta)
+                keyResult.consumed
             },
     ) {
         when {

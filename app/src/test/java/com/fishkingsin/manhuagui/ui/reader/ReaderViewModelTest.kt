@@ -28,6 +28,32 @@ import uniffi.manhuagui_ffi.SearchPage
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderViewModelTest {
     @Test
+    fun samePageNotificationPreservesTheLastTurnDirection() = runTest {
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ ->
+                ChapterPagesResult((1..3).map(::imagePage), null, null)
+            }
+        }
+        val viewModel = viewModel(library, this)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.turnPage(2)
+        viewModel.turnPage(-1)
+
+        assertEquals(1, viewModel.state.value.pageIndex)
+        assertEquals(-1, viewModel.state.value.lastTurnDirection)
+
+        viewModel.onPageChanged(1)
+
+        assertEquals(-1, viewModel.state.value.lastTurnDirection)
+        viewModel.onPageChanged(0)
+        assertEquals(-1, viewModel.state.value.lastTurnDirection)
+        viewModel.onPageChanged(2)
+        assertEquals(1, viewModel.state.value.lastTurnDirection)
+    }
+
+    @Test
     fun loadPublishesPagesAndChapterLinks() = runTest {
         val pages = listOf(imagePage(1), imagePage(2))
         val library = FakeLibrary().apply {
