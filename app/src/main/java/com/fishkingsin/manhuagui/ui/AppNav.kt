@@ -2,14 +2,7 @@ package com.fishkingsin.manhuagui.ui
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,6 +12,7 @@ import coil3.ImageLoader
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.ui.detail.DetailScreen
 import com.fishkingsin.manhuagui.ui.latest.LatestScreen
+import com.fishkingsin.manhuagui.ui.reader.ReaderScreen
 import com.fishkingsin.manhuagui.ui.search.SearchScreen
 
 @Composable
@@ -72,20 +66,22 @@ fun AppNav(
                 navArgument("nativeId") { type = NavType.LongType },
                 navArgument("chapterId") { type = NavType.LongType },
             ),
-        ) {
-            PlaceholderDestination("Reader")
+        ) { backStackEntry ->
+            val arguments = requireNotNull(backStackEntry.arguments)
+            val nativeId = arguments.getLong("nativeId")
+            val chapterId = arguments.getLong("chapterId")
+            ReaderScreen(
+                nativeId = nativeId,
+                chapterId = chapterId,
+                service = libraryService,
+                imageLoader = imageLoader,
+                onBack = { navController.popBackStack() },
+                onOpenChapter = { nextChapterId ->
+                    navController.navigate("reader/$nativeId/$nextChapterId") {
+                        popUpTo("reader/{nativeId}/{chapterId}") { inclusive = true }
+                    }
+                },
+            )
         }
-    }
-}
-
-@Composable
-private fun PlaceholderDestination(label: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text = label, color = Color.Black)
     }
 }
