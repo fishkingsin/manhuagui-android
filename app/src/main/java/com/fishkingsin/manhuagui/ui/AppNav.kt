@@ -1,5 +1,7 @@
 package com.fishkingsin.manhuagui.ui
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +25,14 @@ fun AppNav(
     imageLoader: ImageLoader,
 ) {
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "latest") {
+    NavHost(
+        navController = navController,
+        startDestination = "latest",
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None },
+    ) {
         composable("latest") {
             LatestScreen(
                 service = libraryService,

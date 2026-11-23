@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +21,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,7 +31,6 @@ import androidx.compose.ui.unit.sp
 import coil3.ImageLoader
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.ui.comic.ComicCard
-import kotlinx.coroutines.flow.collect
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 
 @Composable
@@ -46,33 +43,11 @@ fun LatestScreen(
     val scope = rememberCoroutineScope()
     val viewModel = remember(service, scope) { LatestViewModel(service, scope) }
     val uiState by viewModel.state.collectAsState()
-    val listState = rememberLazyListState()
 
     LaunchedEffect(viewModel) {
         val initialState = viewModel.state.value
         if (initialState.items.isEmpty() && !initialState.loading && initialState.error == null) {
             viewModel.refresh()
-        }
-    }
-
-    LaunchedEffect(
-        listState,
-        uiState.window,
-        uiState.loading,
-        uiState.endReached,
-        uiState.items.size,
-    ) {
-        if (uiState.window == AndroidUpdateWindow.ALL &&
-            !uiState.loading &&
-            !uiState.endReached &&
-            uiState.items.isNotEmpty()
-        ) {
-            snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
-                .collect { lastVisibleIndex ->
-                    if (lastVisibleIndex != null && lastVisibleIndex >= uiState.items.lastIndex) {
-                        viewModel.loadMore()
-                    }
-                }
         }
     }
 
@@ -123,7 +98,6 @@ fun LatestScreen(
             uiState.items.isEmpty() -> Message(Modifier.weight(1f), "No comics found.")
             else -> LazyColumn(
                 modifier = Modifier.weight(1f),
-                state = listState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(uiState.items, key = { it.comicId }) { item ->

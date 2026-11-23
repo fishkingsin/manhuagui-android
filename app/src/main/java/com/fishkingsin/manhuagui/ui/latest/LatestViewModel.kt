@@ -91,7 +91,11 @@ class LatestViewModel(
                 onFailure = { throwable ->
                     mutableState.value = mutableState.value.copy(
                         loading = false,
+                        items = emptyList(),
                         error = throwable.toAppError(),
+                        nextPage = 1,
+                        totalPages = 0,
+                        endReached = false,
                     )
                 },
             )

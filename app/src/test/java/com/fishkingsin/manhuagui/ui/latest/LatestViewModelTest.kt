@@ -133,6 +133,36 @@ class LatestViewModelTest {
     }
 
     @Test
+    fun loadMoreFailureClearsItemsAndResetsPaging() = runTest {
+        val first = comic(1)
+        val library = FakeLibrary().apply {
+            onBrowseLatestPage = { page ->
+                if (page == 1) BrowsePage(listOf(first), page = 1, totalPages = 3)
+                else throw IllegalStateException("page diagnostic")
+            }
+        }
+        val viewModel = viewModel(library, this)
+
+        viewModel.setWindow(AndroidUpdateWindow.ALL)
+        runCurrent()
+        assertEquals(listOf(first), viewModel.state.value.items)
+        assertEquals(2, viewModel.state.value.nextPage)
+        assertEquals(3, viewModel.state.value.totalPages)
+
+        viewModel.loadMore()
+        runCurrent()
+
+        assertEquals(AppError.Unknown("page diagnostic"), viewModel.state.value.error)
+        assertEquals("Something went wrong.", viewModel.state.value.error?.userMessage)
+        assertTrue(viewModel.state.value.items.isEmpty())
+        assertEquals(1, viewModel.state.value.nextPage)
+        assertEquals(0, viewModel.state.value.totalPages)
+        assertFalse(viewModel.state.value.endReached)
+        assertFalse(viewModel.state.value.loading)
+        assertEquals(listOf(1, 2), library.latestPages)
+    }
+
+    @Test
     fun refreshFailureClearsItemsAndSurfacesMappedError() = runTest {
         val comic = comic(1)
         var fail = false
