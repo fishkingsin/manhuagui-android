@@ -14,13 +14,18 @@ jobs:
           distribution: zulu
           java-version: "17"
           cache: gradle
-      - uses: android-actions/setup-android@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          SDKMANAGER="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+      - name: Run Android unit tests and build debug APK
+        run: ./gradlew testDebugUnitTest assembleDebug
       - name: Test Rust FFI
         run: cargo test --manifest-path ffi/Cargo.toml
