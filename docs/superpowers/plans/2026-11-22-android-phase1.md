@@ -117,46 +117,49 @@ Task 1 preflight corrections:
 ### Task 4: Latest screen (window-filtered browse)
 
 **Files:**
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/core/LibraryService.kt` (accept `AndroidLibraryInterface` so unit tests can inject a pure-Kotlin fake without loading JNA), `app/src/main/java/com/fishkingsin/manhuagui/MainActivity.kt` (host `AppNav`)
 - Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/latest/LatestViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/latest/LatestScreen.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/comic/ComicCard.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
 - Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/latest/LatestViewModelTest.kt`
 
 **Interfaces:**
-- `LatestViewModel(service)` — state: `data class LatestUiState(window: AndroidUpdateWindow = AndroidUpdateWindow.Days7, loading: Boolean, items: List<ComicListItem>, error: AppError?, nextPage: Int, totalPages: Int, endReached: Boolean)`; `refresh()` (guarded by `loading` — Review Focus 1), `setWindow(w: AndroidUpdateWindow)`, `loadMore()` (All mode only: appends `browse_latest_page(nextPage)` using the returned page metadata; Days modes load once via `browse_within(window, 1, 10)`).
-- Nav routes: `"latest"`, `"search"`, `"comic/{nativeId}"`, `"reader/{nativeId}/{chapterId}"`.
-- `ComicCard`: consumes `ComicListItem`; cover (Coil, no crossfade), title (2-line ellipsis), status_text + optional update_text chip; no elevation; 1dp border.
+- `LatestViewModel(service)` — state: `data class LatestUiState(window: AndroidUpdateWindow = AndroidUpdateWindow.DAYS7, loading: Boolean = false, items: List<ComicListItem> = emptyList(), error: AppError? = null, nextPage: Int = 1, totalPages: Int = 0, endReached: Boolean = false)`; `refresh()` (guarded by `loading` — Review Focus 1), `setWindow(w: AndroidUpdateWindow)`, `loadMore()` (`AndroidUpdateWindow.ALL` mode only: appends `browseLatestPage(nextPage)` using the returned `BrowsePage.page` / `BrowsePage.totalPages` metadata; `DAYS7` / `DAYS15` / `DAYS30` modes load once via `browseWithin(window, 1, 10)`).
+- Nav routes: `"latest"`, `"search"`, `"comic/{nativeId}"`, `"reader/{nativeId}/{chapterId}"`. In Task 4, `"latest"` renders `LatestScreen`; `"search"`, `"comic/{nativeId}"`, and `"reader/{nativeId}/{chapterId}"` are registered in `AppNav` as placeholder destinations until Tasks 5 and 6 replace them.
+- `ComicCard`: consumes `ComicListItem` and `ImageLoader`; cover (`AsyncImage` with the app's `imageLoader`, no crossfade), `title` (2-line ellipsis), `statusText` + optional `updateText` chip; no elevation; 1dp border.
 
-- [ ] **Step 1: Failing ViewModel tests** — fake `LibraryService`: setWindow(AndroidUpdateWindow.Days30) → loading then items; refresh while loading = no second service call; loadMore in All appends the next `BrowsePage.items`, advances `nextPage`, and sets `endReached` when `page >= totalPages`; error → AppError surfaced, items cleared. RED → implement → GREEN.
-- [ ] **Step 2: Screen + nav wired**; assembleDebug; manual emulator smoke (window chips switch, cards scroll).
+- [ ] **Step 1: Failing ViewModel tests** — fake `AndroidLibraryInterface` injected into `LibraryService`: `setWindow(AndroidUpdateWindow.DAYS30)` → loading then items; `refresh()` while loading = no second service call; `loadMore()` in `AndroidUpdateWindow.ALL` appends the next `BrowsePage.items`, advances `nextPage`, and sets `endReached` when `page >= totalPages`; error → `AppError` surfaced, items cleared. RED → implement → GREEN.
+- [ ] **Step 2: Screen + nav wired**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: latest screen with 7/15/30-day windows`.
 
 ### Task 5: Search + Detail screens
 
 **Files:**
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
 - Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/search/SearchViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/search/SearchScreen.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/detail/DetailViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/detail/DetailScreen.kt`
 - Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/search/SearchViewModelTest.kt` and `app/src/test/java/com/fishkingsin/manhuagui/ui/detail/DetailViewModelTest.kt`
 
 **Interfaces:**
 - SearchViewModel: `query`, `results: SearchPage?`, `loading`, `error`; `submit()` → `service.search(query, 1)`; `SearchPage.items` reuse the shared `ComicCard` UI → comic route.
-- DetailViewModel(nativeId): `comic: ComicDetails?`, `chapters: List<ChapterItem>` sorted by `group_size` descending, then `group_name` ascending for stable ties, then `order` descending within each group. This puts the newest chapter first without relying on HashMap iteration order. Tap a chapter to open the reader route. No bookmark button yet (phase 2).
+- DetailViewModel(nativeId): `comic: ComicDetails?`, `chapters: List<ChapterItem>` sorted by `groupSize` descending, then `groupName` ascending for stable ties, then `order` descending within each group. This puts the newest chapter first without relying on HashMap iteration order. Tap a chapter to open the reader route. No bookmark button yet (phase 2).
 
-- [ ] **Step 1: Failing tests**. Use a fake service. Assert groups sort by descending size, ties sort by group name, and chapters sort by descending order within a group. Test error paths. Run RED before implementation, then GREEN.
-- [ ] **Step 2: Screens + nav**; assembleDebug; emulator smoke.
+- [ ] **Step 1: Failing tests**. Use a fake `AndroidLibraryInterface` with `LibraryService`. Assert groups sort by descending `groupSize`, ties sort by `groupName` ascending, and chapters sort by descending `order` within a group. Test error paths. Run RED before implementation, then GREEN.
+- [ ] **Step 2: Screens + nav**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: search and comic detail screens`.
 
 ### Task 6: Reader screen (streaming, RTL, tap zones, zoom)
 
 **Files:**
+- Modify: `app/src/main/java/com/fishkingsin/manhuagui/ui/AppNav.kt`
 - Create: `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderState.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderViewModel.kt`, `app/src/main/java/com/fishkingsin/manhuagui/ui/reader/ReaderScreen.kt`
 - Test: `app/src/test/java/com/fishkingsin/manhuagui/ui/reader/ReaderStateTest.kt` and `app/src/test/java/com/fishkingsin/manhuagui/ui/reader/ReaderViewModelTest.kt`
 
 **Interfaces:**
 - `ReaderState` (pure): `pageIndex`, `zoom: Float (1f..4f)`, `offset: Offset`; `fun onPagerPage(i)`: resets zoom/offset (Review Focus 4); `fun tapZoneAction(x: Float, width: Float, rtl: Boolean): TapAction` where `TapAction = PrevPage | NextPage | ToggleChrome` (Review Focus 3: left 40% / center 20% / right 40%, mirrored in RTL).
-- ReaderViewModel(nativeId, chapterId): loads `ChapterPagesResult`; exposes `ImagePage`s, index, chromeVisible, error+retry; `turnPage(delta)` clamps and emits `ReaderEffect.OpenChapter(id)` at chapter ends using `prev_chapter_id`/`next_chapter_id`. `ReaderScreen` collects effects and navigates to the new reader route; ViewModel has no NavController dependency.
-- ReaderScreen: `HorizontalPager` (`LayoutDirection.Rtl`), `AsyncImage(page.url)` full-res (no size constraint — zoom pipeline), pinch (`detectTransformGestures`: scale 1–4, pan clamped) + double-tap toggles 1f/2f (instant, no animation), tap-zone overlay `Modifier.pointerInput` calling `tapZoneAction`, chrome = minimal top bar (chapter title, page i/n, back), `FLAG_KEEP_SCREEN_ON` while resumed, system back works.
+- ReaderViewModel(nativeId, chapterId): loads `ChapterPagesResult`; exposes `ImagePage`s, index, chromeVisible, error+retry; `turnPage(delta)` clamps and emits `ReaderEffect.OpenChapter(id)` at chapter ends using `prevChapterId`/`nextChapterId`. `ReaderScreen` collects effects and navigates to the new reader route; ViewModel has no NavController dependency.
+- ReaderScreen: `HorizontalPager` (`LayoutDirection.Rtl`), `AsyncImage` with `ImageRequest` built via `PageImages.modelFor(imagePage)` and the app's `imageLoader`, full-res (no size constraint — zoom pipeline), pinch (`detectTransformGestures`: scale 1–4, pan clamped) + double-tap toggles 1f/2f (instant, no animation), tap-zone overlay `Modifier.pointerInput` calling `tapZoneAction`, chrome = minimal top bar (chapter title or chapter id, page i/n, back), `FLAG_KEEP_SCREEN_ON` while resumed, system back works.
 - Page model built via `PageImages.modelFor(imagePage: ImagePage)`.
 
 - [ ] **Step 1: Failing tests** — ReaderStateTest (tap-zone boundaries incl. mirrored RTL, zoom reset on page change, clamp); ReaderViewModelTest (fake service: load ok, load fail → Error+retry clears error; 0 pages → error state — Review Focus 5; last-page turn emits OpenChapter when next id exists). RED → implement → GREEN.
-- [ ] **Step 2: Screen**; assembleDebug.
+- [ ] **Step 2: Screen**; `./gradlew testDebugUnitTest assembleDebug` green.
 - [ ] **Step 3: Commit** — `feat: streaming RTL reader with tap zones and zoom`.
 
 ### Task 7: E-ink polish pass + device checklist + docs
