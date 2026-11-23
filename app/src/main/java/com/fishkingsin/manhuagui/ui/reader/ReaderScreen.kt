@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
@@ -147,6 +148,7 @@ fun ReaderScreen(
             uiState.error != null -> Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .safeDrawingPadding()
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -158,7 +160,7 @@ fun ReaderScreen(
                 }
             }
             uiState.loading || uiState.pages.isEmpty() -> Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("Loading…", color = contentColor)
@@ -222,17 +224,24 @@ private fun ReaderPage(
     onToggleChrome: () -> Unit,
 ) {
     val context = LocalContext.current
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     var intrinsicSize by remember(page.url) { mutableStateOf(GeometrySize.Unspecified) }
+    var retryCount by remember(page.url) { mutableStateOf(0) }
+    var imageFailed by remember(page.url) { mutableStateOf(false) }
     val currentReaderState by rememberUpdatedState(readerState)
     val currentIntrinsicSize by rememberUpdatedState(intrinsicSize)
     val updateReaderState by rememberUpdatedState(onReaderStateChange)
     val turnPage by rememberUpdatedState(onTurnPage)
     val toggleChrome by rememberUpdatedState(onToggleChrome)
-    val request = remember(context, page) {
+    val request = remember(context, page, retryCount) {
         ImageRequest.Builder(context)
             .data(page.url)
             .size(CoilSize.ORIGINAL)
             .apply(PageImages.modelFor(page))
+            .apply {
+                if (retryCount > 0) memoryCacheKey("${page.url}#retry=$retryCount")
+            }
             .build()
     }
 
@@ -295,7 +304,12 @@ private fun ReaderPage(
             imageLoader = imageLoader,
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            onSuccess = { state -> intrinsicSize = state.painter.intrinsicSize },
+            onLoading = { imageFailed = false },
+            onSuccess = { state ->
+                imageFailed = false
+                intrinsicSize = state.painter.intrinsicSize
+            },
+            onError = { imageFailed = true },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -305,6 +319,23 @@ private fun ReaderPage(
                     translationY = readerState.offset.y
                 },
         )
+        if (imageFailed) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(backgroundColor)
+                    .border(1.dp, contentColor, RectangleShape)
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Couldn't load page.", color = contentColor)
+                ReaderButton("Retry page") {
+                    imageFailed = false
+                    retryCount += 1
+                }
+            }
+        }
     }
 }
 
@@ -321,6 +352,7 @@ private fun ReaderChrome(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .safeDrawingPadding()
             .background(backgroundColor)
             .border(1.dp, contentColor, RectangleShape)
             .padding(4.dp),
