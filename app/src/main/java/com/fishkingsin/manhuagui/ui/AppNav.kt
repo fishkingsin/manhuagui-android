@@ -17,7 +17,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil3.ImageLoader
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.ui.detail.DetailScreen
 import com.fishkingsin.manhuagui.ui.latest.LatestScreen
+import com.fishkingsin.manhuagui.ui.search.SearchScreen
 
 @Composable
 fun AppNav(
@@ -42,13 +44,27 @@ fun AppNav(
             )
         }
         composable("search") {
-            PlaceholderDestination("Search")
+            SearchScreen(
+                service = libraryService,
+                imageLoader = imageLoader,
+                onBack = { navController.popBackStack() },
+                onComic = { nativeId -> navController.navigate("comic/$nativeId") },
+            )
         }
         composable(
             route = "comic/{nativeId}",
             arguments = listOf(navArgument("nativeId") { type = NavType.LongType }),
-        ) {
-            PlaceholderDestination("Comic")
+        ) { backStackEntry ->
+            val nativeId = requireNotNull(backStackEntry.arguments?.getLong("nativeId"))
+            DetailScreen(
+                nativeId = nativeId,
+                service = libraryService,
+                imageLoader = imageLoader,
+                onBack = { navController.popBackStack() },
+                onChapter = { chapterId ->
+                    navController.navigate("reader/$nativeId/$chapterId")
+                },
+            )
         }
         composable(
             route = "reader/{nativeId}/{chapterId}",
