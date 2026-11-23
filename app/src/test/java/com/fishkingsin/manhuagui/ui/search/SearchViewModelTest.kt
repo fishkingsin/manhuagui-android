@@ -74,14 +74,15 @@ class SearchViewModelTest {
         viewModel.setQuery("second")
         viewModel.submit()
         runCurrent()
+        assertEquals("first", viewModel.state.value.query)
         assertEquals(listOf(SearchQuery("first", 1)), library.searchQueries)
 
-        val page = SearchPage(items = listOf(comic(2)), current = 1, total = 1)
+        val page = SearchPage(items = listOf(comic(1)), current = 1, total = 1)
         result.complete(page)
         runCurrent()
 
         assertEquals(page, viewModel.state.value.results)
-        assertEquals("second", viewModel.state.value.query)
+        assertEquals("first", viewModel.state.value.query)
         assertFalse(viewModel.state.value.loading)
     }
 

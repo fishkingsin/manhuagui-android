@@ -77,6 +77,7 @@ fun SearchScreen(
                     .border(1.dp, Color.Black, RectangleShape)
                     .padding(horizontal = 12.dp, vertical = 14.dp),
                 singleLine = true,
+                enabled = !uiState.loading,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
                 textStyle = TextStyle(color = Color.Black),

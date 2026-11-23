@@ -26,6 +26,7 @@ class SearchViewModel(
     val state = mutableState.asStateFlow()
 
     fun setQuery(query: String) {
+        if (mutableState.value.loading) return
         mutableState.value = mutableState.value.copy(query = query)
     }
 
