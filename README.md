@@ -4,29 +4,45 @@ A minimal Android manga reader shell with a Rust core linked through UniFFI.
 
 ## Build prerequisites
 
-Install JDK 21, Android SDK Platform 35, Android Build Tools 35.0.0, and NDK 27.2.12479018. Install Rust and the Android targets:
+Install JDK 17 or JDK 21. Install Android SDK Platform 35 and Android SDK Build Tools 35.0.0. Install NDK 27.2.12479018.
+
+Install Rust and add the Android targets:
 
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
 ```
 
-Set the Android SDK paths before building:
+Set `JAVA_HOME` and `ANDROID_HOME` to the paths on your machine:
 
 ```sh
-export JAVA_HOME="$HOME/.sdkman/candidates/java/21.0.8-zulu"
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export JAVA_HOME="/path/to/your/jdk"
+export ANDROID_HOME="/path/to/your/android-sdk"
 ```
 
-Build the debug APK and run the Rust tests from the repository root:
+## Run tests
+
+Run the Android unit tests from the repository root:
 
 ```sh
-./gradlew assembleDebug
+./gradlew testDebugUnitTest
+```
+
+Run the Rust FFI tests:
+
+```sh
 cargo test --manifest-path ffi/Cargo.toml
 ```
 
-Install the APK on a connected Android device with:
+## Build the debug APK
+
+Build the debug APK from the repository root:
 
 ```sh
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug
 ```
+
+The APK is at `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Verify on a device
+
+Use the [device checklist](docs/device-checklist.md) to verify browse, search, reader, and e-ink behavior on BOOX Leaf 5 or Leaf 5C hardware.

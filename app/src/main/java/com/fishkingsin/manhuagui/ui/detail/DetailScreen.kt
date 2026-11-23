@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -48,6 +48,8 @@ fun DetailScreen(
     val viewModel = remember(nativeId, service, scope) { DetailViewModel(nativeId, service, scope) }
     val uiState by viewModel.state.collectAsState()
     val comic = uiState.comic
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
 
     LaunchedEffect(viewModel) {
         val current = viewModel.state.value
@@ -59,7 +61,7 @@ fun DetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(backgroundColor)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -78,7 +80,7 @@ fun DetailScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = Color.Black)
+                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
                 EInkButton(label = "Retry", onClick = viewModel::load)
             }
             comic != null -> DetailContent(
@@ -101,6 +103,7 @@ private fun DetailContent(
     onChapter: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val contentColor = MaterialTheme.colorScheme.onBackground
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -116,39 +119,46 @@ private fun DetailContent(
                         .size(width = 120.dp, height = 168.dp)
                         .align(Alignment.CenterHorizontally),
                 )
-                Text(text = comic.title, color = Color.Black, fontSize = 24.sp)
+                Text(text = comic.title, color = contentColor, fontSize = 24.sp)
                 comic.subtitle?.let { subtitle ->
-                    Text(text = subtitle, color = Color.Black, fontSize = 18.sp)
+                    Text(text = subtitle, color = contentColor, fontSize = 18.sp)
                 }
                 if (comic.authors.isNotEmpty()) {
-                    Text(text = "Authors: ${comic.authors.joinToString(", ")}", color = Color.Black)
+                    Text(text = "Authors: ${comic.authors.joinToString(", ")}", color = contentColor)
                 }
                 if (comic.genres.isNotEmpty()) {
-                    Text(text = "Genres: ${comic.genres.joinToString(", ")}", color = Color.Black)
+                    Text(text = "Genres: ${comic.genres.joinToString(", ")}", color = contentColor)
                 }
-                Text(text = "Status: ${comic.statusText}", color = Color.Black)
-                Text(text = "Updated: ${comic.updateText}", color = Color.Black)
+                Text(text = "Status: ${comic.statusText}", color = contentColor)
+                Text(text = "Updated: ${comic.updateText}", color = contentColor)
                 if (comic.intro.isNotBlank()) {
-                    Text(text = comic.intro, color = Color.Black)
+                    Text(text = comic.intro, color = contentColor)
                 }
             }
         }
         item(key = "chapters-heading") {
-            Text(text = "Chapters", color = Color.Black, fontSize = 22.sp)
+            Text(text = "Chapters", color = contentColor, fontSize = 22.sp)
         }
-        items(chapters, key = { it.chapterId }) { chapter ->
-            ChapterRow(chapter = chapter, onClick = { onChapter(chapter.chapterId) })
+        if (chapters.isEmpty()) {
+            item(key = "empty-chapters") {
+                Text(text = "No chapters available.", color = contentColor)
+            }
+        } else {
+            items(chapters, key = { it.chapterId }) { chapter ->
+                ChapterRow(chapter = chapter, onClick = { onChapter(chapter.chapterId) })
+            }
         }
     }
 }
 
 @Composable
 private fun ChapterRow(chapter: ChapterItem, onClick: () -> Unit) {
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .border(1.dp, Color.Black, RectangleShape)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -162,20 +172,22 @@ private fun ChapterRow(chapter: ChapterItem, onClick: () -> Unit) {
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(text = chapter.groupName, color = Color.Black)
-            Text(text = chapter.chapterTitle, color = Color.Black)
+            Text(text = chapter.groupName, color = contentColor)
+            Text(text = chapter.chapterTitle, color = contentColor)
         }
-        Text(text = "${chapter.chapterSize}p", color = Color.Black)
+        Text(text = "${chapter.chapterSize}p", color = contentColor)
     }
 }
 
 @Composable
 private fun EInkButton(label: String, onClick: () -> Unit) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = Modifier
             .height(48.dp)
-            .background(Color.White)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(backgroundColor)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -184,17 +196,18 @@ private fun EInkButton(label: String, onClick: () -> Unit) {
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = Color.Black, fontSize = 16.sp)
+        Text(text = label, color = contentColor, fontSize = 16.sp)
     }
 }
 
 @Composable
 private fun Message(modifier: Modifier, text: String) {
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(text = text, color = Color.Black)
+        Text(text = text, color = contentColor)
     }
 }

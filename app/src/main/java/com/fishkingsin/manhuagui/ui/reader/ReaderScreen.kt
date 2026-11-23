@@ -1,10 +1,12 @@
 package com.fishkingsin.manhuagui.ui.reader
 
 import android.app.Activity
+import android.util.Log
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -21,10 +23,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -39,11 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as GeometrySize
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -51,6 +53,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -80,6 +85,9 @@ fun ReaderScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
+    val focusRequester = remember { FocusRequester() }
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     val window = (context as? Activity)?.window
 
     DisposableEffect(lifecycleOwner, view, window) {
@@ -107,6 +115,9 @@ fun ReaderScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
     LaunchedEffect(viewModel) {
         viewModel.load()
     }
@@ -121,7 +132,16 @@ fun ReaderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(backgroundColor)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                Log.i(
+                    "ReaderKey",
+                    "action=${event.nativeKeyEvent.action} keyCode=${event.nativeKeyEvent.keyCode}",
+                )
+                false
+            },
     ) {
         when {
             uiState.error != null -> Column(
@@ -131,7 +151,7 @@ fun ReaderScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = Color.Black)
+                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ReaderButton("Retry", viewModel::retry)
                     ReaderButton("Back", onBack)
@@ -141,7 +161,7 @@ fun ReaderScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Loading…", color = Color.Black)
+                Text("Loading…", color = contentColor)
             }
             else -> {
                 val pagerState = rememberPagerState(pageCount = { uiState.pages.size })
@@ -296,28 +316,32 @@ private fun ReaderChrome(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.White)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(backgroundColor)
+            .border(1.dp, contentColor, RectangleShape)
             .padding(4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ReaderButton("Back", onBack)
-        Text("Chapter $chapterId", color = Color.Black)
-        Text("${pageIndex + 1} / $pageCount", color = Color.Black)
+        Text("Chapter $chapterId", color = contentColor)
+        Text("${pageIndex + 1} / $pageCount", color = contentColor)
     }
 }
 
 @Composable
 private fun ReaderButton(label: String, onClick: () -> Unit) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = Modifier
             .heightIn(min = 48.dp)
-            .background(Color.White, RectangleShape)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(backgroundColor, RectangleShape)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -326,6 +350,6 @@ private fun ReaderButton(label: String, onClick: () -> Unit) {
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = Color.Black)
+        Text(label, color = contentColor)
     }
 }

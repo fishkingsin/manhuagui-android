@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -26,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -48,11 +48,13 @@ fun SearchScreen(
     val viewModel = remember(service, scope) { SearchViewModel(service, scope) }
     val uiState by viewModel.state.collectAsState()
     val results = uiState.results
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(backgroundColor)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -62,7 +64,7 @@ fun SearchScreen(
         ) {
             EInkButton(label = "Back", onClick = onBack)
         }
-        Text(text = "Search", color = Color.Black, fontSize = 26.sp)
+        Text(text = "Search", color = contentColor, fontSize = 26.sp)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -74,18 +76,18 @@ fun SearchScreen(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
-                    .border(1.dp, Color.Black, RectangleShape)
+                    .border(1.dp, contentColor, RectangleShape)
                     .padding(horizontal = 12.dp, vertical = 14.dp),
                 singleLine = true,
                 enabled = !uiState.loading,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { viewModel.submit() }),
-                textStyle = TextStyle(color = Color.Black),
-                cursorBrush = SolidColor(Color.Black),
+                textStyle = TextStyle(color = contentColor),
+                cursorBrush = SolidColor(contentColor),
                 decorationBox = { innerTextField ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (uiState.query.isEmpty()) {
-                            Text(text = "Search comics", color = Color.Black)
+                            Text(text = "Search comics", color = contentColor)
                         }
                         innerTextField()
                     }
@@ -106,7 +108,7 @@ fun SearchScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = Color.Black)
+                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
                 EInkButton(label = "Retry", onClick = viewModel::submit)
             }
             results?.items?.isEmpty() == true -> Message(Modifier.weight(1f), "No comics found.")
@@ -136,11 +138,13 @@ private fun EInkButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = Modifier
             .height(48.dp)
-            .background(Color.White)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(backgroundColor)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
@@ -150,17 +154,18 @@ private fun EInkButton(
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = Color.Black, fontSize = 16.sp)
+        Text(text = label, color = contentColor, fontSize = 16.sp)
     }
 }
 
 @Composable
 private fun Message(modifier: Modifier, text: String) {
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(text = text, color = Color.Black)
+        Text(text = text, color = contentColor)
     }
 }

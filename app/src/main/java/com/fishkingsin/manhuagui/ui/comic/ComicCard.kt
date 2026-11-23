@@ -9,13 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +30,9 @@ fun ComicCard(
     imageLoader: ImageLoader,
     onClick: () -> Unit,
 ) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -39,11 +42,11 @@ fun ComicCard(
                 onClick = onClick,
             ),
         shape = RectangleShape,
-        color = Color.White,
-        contentColor = Color.Black,
+        color = backgroundColor,
+        contentColor = contentColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, Color.Black),
+        border = BorderStroke(1.dp, contentColor),
     ) {
         Row(
             modifier = Modifier.padding(8.dp),
@@ -70,11 +73,11 @@ fun ComicCard(
                 item.updateText?.let { updateText ->
                     Surface(
                         shape = RectangleShape,
-                        color = Color.White,
-                        contentColor = Color.Black,
+                        color = backgroundColor,
+                        contentColor = contentColor,
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
-                        border = BorderStroke(1.dp, Color.Black),
+                        border = BorderStroke(1.dp, contentColor),
                     ) {
                         Text(
                             text = updateText,

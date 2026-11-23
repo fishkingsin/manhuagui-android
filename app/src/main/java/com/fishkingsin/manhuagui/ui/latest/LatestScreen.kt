@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,7 +25,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +43,8 @@ fun LatestScreen(
     val scope = rememberCoroutineScope()
     val viewModel = remember(service, scope) { LatestViewModel(service, scope) }
     val uiState by viewModel.state.collectAsState()
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
 
     LaunchedEffect(viewModel) {
         val initialState = viewModel.state.value
@@ -54,7 +56,7 @@ fun LatestScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(backgroundColor)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -63,7 +65,7 @@ fun LatestScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = "Latest", color = Color.Black, fontSize = 26.sp)
+            Text(text = "Latest", color = contentColor, fontSize = 26.sp)
             EInkButton(label = "Search", onClick = onSearch)
         }
         Row(
@@ -92,7 +94,7 @@ fun LatestScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = Color.Black)
+                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
                 EInkButton(label = "Retry", onClick = viewModel::refresh)
             }
             uiState.items.isEmpty() -> Message(Modifier.weight(1f), "No comics found.")
@@ -114,7 +116,7 @@ fun LatestScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             if (uiState.loading) {
-                                Text("Loading…", color = Color.Black, modifier = Modifier.padding(12.dp))
+                                Text("Loading…", color = contentColor, modifier = Modifier.padding(12.dp))
                             } else {
                                 EInkButton(label = "Load more", onClick = viewModel::loadMore)
                             }
@@ -135,12 +137,14 @@ private fun WindowChip(
     modifier: Modifier,
 ) {
     val selected = window == selectedWindow
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = modifier
             .height(48.dp)
             .clip(RectangleShape)
-            .background(if (selected) Color.Black else Color.White)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(if (selected) contentColor else backgroundColor)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -150,7 +154,7 @@ private fun WindowChip(
     ) {
         Text(
             text = label,
-            color = if (selected) Color.White else Color.Black,
+            color = if (selected) backgroundColor else contentColor,
             fontSize = 16.sp,
         )
     }
@@ -158,12 +162,14 @@ private fun WindowChip(
 
 @Composable
 private fun EInkButton(label: String, onClick: () -> Unit) {
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = Modifier
             .height(48.dp)
             .clip(RectangleShape)
-            .background(Color.White)
-            .border(1.dp, Color.Black, RectangleShape)
+            .background(backgroundColor)
+            .border(1.dp, contentColor, RectangleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -172,17 +178,18 @@ private fun EInkButton(label: String, onClick: () -> Unit) {
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = Color.Black, fontSize = 16.sp)
+        Text(text = label, color = contentColor, fontSize = 16.sp)
     }
 }
 
 @Composable
 private fun Message(modifier: Modifier, text: String) {
+    val contentColor = MaterialTheme.colorScheme.onBackground
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(text = text, color = Color.Black)
+        Text(text = text, color = contentColor)
     }
 }
