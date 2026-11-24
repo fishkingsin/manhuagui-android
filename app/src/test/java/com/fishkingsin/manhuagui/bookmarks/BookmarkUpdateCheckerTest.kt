@@ -4,6 +4,7 @@ import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.BookmarkRecord
 import com.fishkingsin.manhuagui.data.DEFAULT_SOURCE_ID
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -123,6 +124,36 @@ class BookmarkUpdateCheckerTest {
 
         assertEquals(emptyList<UpdatedBookmark>(), result.await())
         assertNull(store.getBookmark(51))
+    }
+
+    @Test
+    fun concurrentChecksApplyNewChaptersOnceFromTheLatestBookmark() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(bookmark(comicId = 53, lastKnownChapterIds = setOf(1)))
+        val bothFetchesArrived = CompletableDeferred<Unit>()
+        var fetchCount = 0
+        suspend fun awaitBothAndReturnComic(): ComicDetails {
+            fetchCount += 1
+            if (fetchCount == 2) bothFetchesArrived.complete(Unit)
+            bothFetchesArrived.await()
+            return comic(53, listOf(chapter(1, "Group", 2, 1.0), chapter(2, "Group", 2, 2.0)))
+        }
+        val library1 = FakeLibrary().apply {
+            onGetComic = { awaitBothAndReturnComic() }
+        }
+        val library2 = FakeLibrary().apply {
+            onGetComic = { awaitBothAndReturnComic() }
+        }
+        val testScope = this
+        val first = async { checker(store, library1, testScope).checkAll() }
+        val second = async { checker(store, library2, testScope).checkAll() }
+
+        runCurrent()
+
+        val updates = listOf(first.await(), second.await()).flatten()
+
+        assertEquals(listOf(UpdatedBookmark(53, "Comic 53", "Chapter 2", 1)), updates)
+        assertEquals(1, store.getBookmark(53)?.newChapterCount)
     }
 
     @Test
@@ -329,7 +360,7 @@ class BookmarkUpdateCheckerTest {
     }
 
     private fun checker(
-        store: InMemoryLocalStore,
+        store: LocalStore,
         library: FakeLibrary,
         scope: TestScope,
         delayMs: suspend (Long) -> Unit = {},

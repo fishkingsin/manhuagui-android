@@ -37,6 +37,7 @@ class DetailViewModel(
 ) {
     private val mutableState = MutableStateFlow(DetailUiState())
     private val toggleMutex = Mutex()
+    private var toggleGeneration = 0L
     val state = mutableState.asStateFlow()
 
     fun load() {
@@ -51,20 +52,17 @@ class DetailViewModel(
                             .thenBy { it.groupName }
                             .thenByDescending { it.order },
                     )
-                    val existingBookmark = localStore.getBookmark(nativeId)
-                    val progress = localStore.getReadingProgress(nativeId)
-                    if (existingBookmark != null) {
-                        localStore.upsertBookmark(
-                            existingBookmark.copy(
-                                title = comic.title,
-                                coverUrl = comic.coverUrl,
-                                lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
-                                latestChapterTitle = sortedChapters.firstOrNull()?.chapterTitle.orEmpty(),
-                                hasUnreadUpdate = false,
-                                newChapterCount = 0,
-                            ),
+                    val existingBookmark = localStore.updateBookmarkIfPresent(nativeId) { current ->
+                        current.copy(
+                            title = comic.title,
+                            coverUrl = comic.coverUrl,
+                            lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
+                            latestChapterTitle = sortedChapters.firstOrNull()?.chapterTitle.orEmpty(),
+                            hasUnreadUpdate = false,
+                            newChapterCount = 0,
                         )
                     }
+                    val progress = localStore.getReadingProgress(nativeId)
                     mutableState.value = mutableState.value.copy(
                         loading = false,
                         comic = comic,
@@ -90,6 +88,7 @@ class DetailViewModel(
         val current = mutableState.value
         val comic = current.comic ?: return
         val nextBookmarked = !current.isBookmarked
+        val generation = ++toggleGeneration
         mutableState.value = current.copy(isBookmarked = nextBookmarked)
         scope.launch {
             toggleMutex.withLock {
@@ -114,7 +113,9 @@ class DetailViewModel(
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {
-                    mutableState.value = mutableState.value.copy(isBookmarked = !nextBookmarked)
+                    if (generation == toggleGeneration) {
+                        mutableState.value = mutableState.value.copy(isBookmarked = !nextBookmarked)
+                    }
                 }
             }
         }

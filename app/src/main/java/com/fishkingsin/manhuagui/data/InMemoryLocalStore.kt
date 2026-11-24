@@ -21,6 +21,27 @@ class InMemoryLocalStore : LocalStore {
     override suspend fun getBookmark(comicId: Long, sourceId: String): BookmarkRecord? =
         bookmarks.value[StoreKey(sourceId, comicId)]
 
+    override suspend fun updateBookmarkIfPresent(
+        comicId: Long,
+        sourceId: String,
+        transform: (BookmarkRecord) -> BookmarkRecord,
+    ): BookmarkRecord? {
+        val key = StoreKey(sourceId, comicId)
+        var updated: BookmarkRecord? = null
+        bookmarks.update { currentMap ->
+            val current = currentMap[key]
+            if (current == null) {
+                updated = null
+                currentMap
+            } else {
+                val record = transform(current)
+                updated = record
+                currentMap + (key to record)
+            }
+        }
+        return updated
+    }
+
     override suspend fun upsertBookmark(record: BookmarkRecord) {
         bookmarks.update { it + (StoreKey(record.sourceId, record.comicId) to record) }
     }

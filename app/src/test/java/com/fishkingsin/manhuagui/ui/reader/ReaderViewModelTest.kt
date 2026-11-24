@@ -59,6 +59,29 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun reopeningSavedChapterWithoutTitlePreservesItsRealTitle() = runTest {
+        val store = InMemoryLocalStore()
+        store.saveReadingProgress(
+            ReadingProgress(
+                comicId = 42,
+                chapterId = 7,
+                chapterTitle = "A Real Chapter Title",
+                pageIndex = 1,
+                updatedAtEpochMs = 10,
+            ),
+        )
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store, clockMs = { 20 })
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals("A Real Chapter Title", store.getReadingProgress(42)?.chapterTitle)
+    }
+
+    @Test
     fun loadClampsSavedPageToTheLastAvailablePage() = runTest {
         val store = InMemoryLocalStore()
         store.saveReadingProgress(

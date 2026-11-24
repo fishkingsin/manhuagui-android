@@ -43,6 +43,7 @@ class ReaderViewModel(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val mutableState = MutableStateFlow(ReaderUiState(nativeId, chapterId))
+    private var resolvedChapterTitle = chapterTitle.ifBlank { "Chapter $chapterId" }
     val state = mutableState.asStateFlow()
 
     private val mutableEffects = MutableSharedFlow<ReaderEffect>(extraBufferCapacity = 1)
@@ -63,15 +64,23 @@ class ReaderViewModel(
                         )
                     } else {
                         val savedProgress = localStore.getReadingProgress(nativeId)
+                        resolvedChapterTitle = chapterTitle.ifBlank {
+                            savedProgress
+                                ?.takeIf { it.chapterId == chapterId && it.chapterTitle.isNotBlank() }
+                                ?.chapterTitle ?: "Chapter $chapterId"
+                        }
                         val initialPageIndex = if (savedProgress?.chapterId == chapterId) {
                             savedProgress.pageIndex.coerceIn(0, result.pages.lastIndex)
                         } else {
                             0
                         }
                         localStore.saveReadingProgress(progressAt(initialPageIndex))
-                        val bookmark = localStore.getBookmark(nativeId)
-                        if (bookmark != null && (bookmark.hasUnreadUpdate || bookmark.newChapterCount > 0)) {
-                            localStore.upsertBookmark(bookmark.copy(hasUnreadUpdate = false, newChapterCount = 0))
+                        localStore.updateBookmarkIfPresent(nativeId) { bookmark ->
+                            if (bookmark.hasUnreadUpdate || bookmark.newChapterCount > 0) {
+                                bookmark.copy(hasUnreadUpdate = false, newChapterCount = 0)
+                            } else {
+                                bookmark
+                            }
                         }
                         mutableState.value = mutableState.value.copy(
                             loading = false,
@@ -115,7 +124,7 @@ class ReaderViewModel(
     private fun progressAt(pageIndex: Int) = ReadingProgress(
         comicId = nativeId,
         chapterId = chapterId,
-        chapterTitle = chapterTitle.ifBlank { "Chapter $chapterId" },
+        chapterTitle = resolvedChapterTitle,
         pageIndex = pageIndex,
         updatedAtEpochMs = clockMs(),
     )

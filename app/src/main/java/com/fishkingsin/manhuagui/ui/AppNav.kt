@@ -1,5 +1,6 @@
 package com.fishkingsin.manhuagui.ui
 
+import android.net.Uri
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
@@ -79,16 +80,22 @@ fun AppNav(
                 imageLoader = imageLoader,
                 localStore = localStore,
                 onBack = { navController.popBackStack() },
-                onChapter = { chapterId ->
-                    navController.navigate("reader/$nativeId/$chapterId")
+                onChapter = { chapterId, chapterTitle ->
+                    navController.navigate(
+                        "reader/$nativeId/$chapterId?chapterTitle=${Uri.encode(chapterTitle)}",
+                    )
                 },
             )
         }
         composable(
-            route = "reader/{nativeId}/{chapterId}",
+            route = "reader/{nativeId}/{chapterId}?chapterTitle={chapterTitle}",
             arguments = listOf(
                 navArgument("nativeId") { type = NavType.LongType },
                 navArgument("chapterId") { type = NavType.LongType },
+                navArgument("chapterTitle") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) { backStackEntry ->
             val arguments = requireNotNull(backStackEntry.arguments)
@@ -97,13 +104,14 @@ fun AppNav(
             ReaderScreen(
                 nativeId = nativeId,
                 chapterId = chapterId,
+                chapterTitle = arguments.getString("chapterTitle").orEmpty(),
                 service = libraryService,
                 imageLoader = imageLoader,
                 localStore = localStore,
                 onBack = { navController.popBackStack() },
                 onOpenChapter = { nextChapterId ->
                     navController.navigate("reader/$nativeId/$nextChapterId") {
-                        popUpTo("reader/{nativeId}/{chapterId}") { inclusive = true }
+                        popUpTo("reader/{nativeId}/{chapterId}?chapterTitle={chapterTitle}") { inclusive = true }
                     }
                 },
             )

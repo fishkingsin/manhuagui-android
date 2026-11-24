@@ -82,6 +82,30 @@ class LocalStoreTest {
     }
 
     @Test
+    fun updateBookmarkIfPresentTransformsAndReturnsAnExistingRecord() = runTest {
+        val store = InMemoryLocalStore()
+        val initial = bookmark(comicId = 11)
+        store.upsertBookmark(initial)
+
+        val updated = store.updateBookmarkIfPresent(11) {
+            it.copy(title = "Updated title", newChapterCount = 3)
+        }
+
+        assertEquals(initial.copy(title = "Updated title", newChapterCount = 3), updated)
+        assertEquals(updated, store.getBookmark(11))
+    }
+
+    @Test
+    fun updateBookmarkIfPresentReturnsNullWithoutInsertingAnAbsentRecord() = runTest {
+        val store = InMemoryLocalStore()
+
+        val updated = store.updateBookmarkIfPresent(12) { it.copy(title = "Unexpected") }
+
+        assertNull(updated)
+        assertNull(store.getBookmark(12))
+    }
+
+    @Test
     fun readingProgressOverwritesBySourceAndComic() = runTest {
         val store = InMemoryLocalStore()
         store.saveReadingProgress(progress(comicId = 7, chapterId = 10, pageIndex = 3))

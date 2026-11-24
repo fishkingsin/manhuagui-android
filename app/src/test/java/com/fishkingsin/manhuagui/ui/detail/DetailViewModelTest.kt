@@ -104,6 +104,41 @@ class DetailViewModelTest {
     }
 
     @Test
+    fun olderToggleFailureDoesNotRollBackTheLatestSuccessfulToggle() = runTest {
+        val base = InMemoryLocalStore()
+        val firstWriteStarted = CompletableDeferred<Unit>()
+        val releaseFirstWrite = CompletableDeferred<Unit>()
+        var writeCount = 0
+        val store = object : LocalStore by base {
+            override suspend fun upsertBookmark(record: BookmarkRecord) {
+                writeCount += 1
+                if (writeCount == 1) {
+                    firstWriteStarted.complete(Unit)
+                    releaseFirstWrite.await()
+                    throw IllegalStateException("first write failed")
+                }
+                base.upsertBookmark(record)
+            }
+        }
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.toggleBookmark()
+        runCurrent()
+        assertTrue(firstWriteStarted.isCompleted)
+
+        viewModel.toggleBookmark()
+        viewModel.toggleBookmark()
+        releaseFirstWrite.complete(Unit)
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isBookmarked)
+        assertEquals("Comic 41", base.getBookmark(41)?.title)
+    }
+
+    @Test
     fun failedBookmarkWriteRevertsOptimisticState() = runTest {
         val store = object : LocalStore by InMemoryLocalStore() {
             override suspend fun upsertBookmark(record: BookmarkRecord) {
