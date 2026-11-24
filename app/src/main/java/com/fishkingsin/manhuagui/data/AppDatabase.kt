@@ -1,6 +1,7 @@
 package com.fishkingsin.manhuagui.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "bookmarks", primaryKeys = ["sourceId", "comicId"])
 data class BookmarkEntity(
-    val sourceId: String,
+    @ColumnInfo(defaultValue = DEFAULT_SOURCE_ID) val sourceId: String = DEFAULT_SOURCE_ID,
     val comicId: Long,
     val title: String,
     val coverUrl: String,
@@ -27,7 +28,7 @@ data class BookmarkEntity(
 
 @Entity(tableName = "reading_progress", primaryKeys = ["sourceId", "comicId"])
 data class ReadingProgressEntity(
-    val sourceId: String,
+    @ColumnInfo(defaultValue = DEFAULT_SOURCE_ID) val sourceId: String = DEFAULT_SOURCE_ID,
     val comicId: Long,
     val chapterId: Long,
     val chapterTitle: String,

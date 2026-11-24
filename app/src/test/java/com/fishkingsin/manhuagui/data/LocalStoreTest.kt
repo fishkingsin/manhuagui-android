@@ -8,6 +8,31 @@ import org.junit.Test
 
 class LocalStoreTest {
     @Test
+    fun roomEntitiesDefaultToTheManhuaguiSource() {
+        val bookmark = BookmarkEntity(
+            comicId = 1,
+            title = "Comic",
+            coverUrl = "https://example.test/1.jpg",
+            lastKnownChapterIds = "",
+            latestChapterTitle = "Chapter",
+            newChapterCount = 0,
+            hasUnreadUpdate = false,
+            lastCheckedEpochMs = 0,
+            updatedAtEpochMs = 0,
+        )
+        val progress = ReadingProgressEntity(
+            comicId = 1,
+            chapterId = 10,
+            chapterTitle = "Chapter 10",
+            pageIndex = 0,
+            updatedAtEpochMs = 0,
+        )
+
+        assertEquals(DEFAULT_SOURCE_ID, bookmark.sourceId)
+        assertEquals(DEFAULT_SOURCE_ID, progress.sourceId)
+    }
+
+    @Test
     fun chapterIdsCodecRoundTripsEmptyAndUnsortedSets() {
         assertEquals("", ChapterIdsCodec.encode(emptySet()))
         assertEquals(emptySet<Long>(), ChapterIdsCodec.decode(""))
