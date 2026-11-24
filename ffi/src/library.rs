@@ -257,7 +257,6 @@ impl<'a> DownloadRegistration<'a> {
         delete_sender: watch::Sender<()>,
         temp_dir: PathBuf,
     ) -> Result<(), AndroidError> {
-        self.temp_dir = Some(temp_dir);
         let mut active_downloads = self.active_downloads.lock();
         let reservation_is_active = active_downloads
             .get(&self.chapter_id)
@@ -269,6 +268,7 @@ impl<'a> DownloadRegistration<'a> {
                 detail: format!("Cancelled chapter {}", self.chapter_id),
             });
         }
+        self.temp_dir = Some(temp_dir);
         active_downloads.insert(self.chapter_id, delete_sender.clone());
         self.delete_sender = delete_sender;
         Ok(())
