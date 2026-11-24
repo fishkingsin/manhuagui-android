@@ -44,11 +44,11 @@ class PagePrefetcher(
     fun onPageTurn(pages: List<ImagePage>, currentPage: Int, directionDelta: Int = 1) {
         if (pages.isEmpty() || currentPage !in pages.indices) return
 
-        for (index in evictIndices(currentPage, pages.size, 2)) {
-            evictUrl(pages[index].url)
-        }
         for (index in prefetchIndices(currentPage, pages.size, directionDelta, 3)) {
             enqueuePage(pages[index])
+        }
+        for (index in evictIndices(currentPage, pages.size, 2)) {
+            evictUrl(pages[index].url)
         }
     }
 

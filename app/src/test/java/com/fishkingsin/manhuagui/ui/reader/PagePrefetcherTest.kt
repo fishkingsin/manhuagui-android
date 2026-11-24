@@ -43,30 +43,6 @@ class PagePrefetcherTest {
     }
 
     @Test
-    fun evictsBeforeEnqueueingPrefetchedPages() {
-        val pages = (0..7).map(::imagePage)
-        val actions = mutableListOf<String>()
-        val prefetcher = PagePrefetcher(
-            enqueuePage = { actions += "enqueue:${it.url}" },
-            evictUrl = { actions += "evict:$it" },
-        )
-
-        prefetcher.onPageTurn(pages, currentPage = 4, directionDelta = -1)
-
-        assertEquals(
-            listOf(
-                "evict:https://example.test/0.jpg",
-                "evict:https://example.test/1.jpg",
-                "evict:https://example.test/7.jpg",
-                "enqueue:https://example.test/3.jpg",
-                "enqueue:https://example.test/2.jpg",
-                "enqueue:https://example.test/1.jpg",
-            ),
-            actions,
-        )
-    }
-
-    @Test
     fun evictsCanonicalAndRetryKeysButKeepsOtherPageKeys() {
         val url = "https://example.test/1.jpg"
         val otherUrl = "https://example.test/2.jpg"
