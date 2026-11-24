@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.manhuagui_ffi.AndroidDownloadObserver
 import uniffi.manhuagui_ffi.DownloadedChapter
 
@@ -56,6 +58,7 @@ class OfflineDownloadManager(
 ) {
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + io)
     private val lock = Any()
+    private val storeMutex = Mutex()
     private val queue = MutableStateFlow<List<ChapterDownloadRequest>>(emptyList())
     private val active = MutableStateFlow<Set<Long>>(emptySet())
     private val cancelledChapters = mutableSetOf<Long>()
@@ -132,8 +135,11 @@ class OfflineDownloadManager(
     }
 
     suspend fun deleteChapter(comicId: Long, chapterId: Long) {
-        service.deleteDownloadedChapter(comicId, chapterId, downloadRoot).getOrThrow()
-        localStore.deleteDownloadedChapter(comicId, chapterId)
+        cancel(chapterId)
+        storeMutex.withLock {
+            service.deleteDownloadedChapter(comicId, chapterId, downloadRoot).getOrThrow()
+            localStore.deleteDownloadedChapter(comicId, chapterId)
+        }
     }
 
     suspend fun deleteComic(comicId: Long) {
@@ -152,9 +158,11 @@ class OfflineDownloadManager(
             }
             activeChapters.forEach(::cancelInService)
         }
-        localStore.getDownloadedChapters(comicId).forEach { record ->
-            service.deleteDownloadedChapter(comicId, record.chapterId, downloadRoot).getOrThrow()
-            localStore.deleteDownloadedChapter(comicId, record.chapterId)
+        storeMutex.withLock {
+            localStore.getDownloadedChapters(comicId).forEach { record ->
+                service.deleteDownloadedChapter(comicId, record.chapterId, downloadRoot).getOrThrow()
+                localStore.deleteDownloadedChapter(comicId, record.chapterId)
+            }
         }
     }
 
@@ -229,16 +237,18 @@ class OfflineDownloadManager(
                 downloadRoot,
                 observer,
             ).getOrThrow()
-            val cancelledAfterDownload = synchronized(lock) {
-                request.chapterId in cancelledChapters
+            storeMutex.withLock {
+                val cancelledAfterDownload = synchronized(lock) {
+                    request.chapterId in cancelledChapters
+                }
+                if (cancelledAfterDownload) {
+                    service.deleteDownloadedChapter(request.comicId, request.chapterId, downloadRoot).getOrThrow()
+                    updateProgress(request) { it.copy(status = ChapterDownloadStatus.CANCELLED) }
+                } else {
+                    localStore.upsertDownloadedChapter(downloaded.toRecord())
+                    updateProgress(request) { it.copy(status = ChapterDownloadStatus.COMPLETED) }
+                }
             }
-            if (cancelledAfterDownload) {
-                service.deleteDownloadedChapter(request.comicId, request.chapterId, downloadRoot).getOrThrow()
-                updateProgress(request) { it.copy(status = ChapterDownloadStatus.CANCELLED) }
-                return
-            }
-            localStore.upsertDownloadedChapter(downloaded.toRecord())
-            updateProgress(request) { it.copy(status = ChapterDownloadStatus.COMPLETED) }
         } catch (cancelled: CancellationException) {
             updateProgress(request) { it.copy(status = ChapterDownloadStatus.CANCELLED) }
             throw cancelled

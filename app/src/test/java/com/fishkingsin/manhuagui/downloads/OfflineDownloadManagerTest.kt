@@ -274,6 +274,37 @@ class OfflineDownloadManagerTest {
         manager.release()
     }
 
+    @Test
+    fun deleteComicDuringInFlightDownloadLeavesNoRecordAndCancelsIt() = runTest {
+        val store = InMemoryLocalStore()
+        val library = DownloadsTestLibrary()
+        val downloadStarted = CompletableDeferred<Unit>()
+        val finishDownload = CompletableDeferred<Unit>()
+        val deleted = mutableListOf<Pair<Long, Long>>()
+        library.onDownload = { comicId, chapterId, _, _ ->
+            downloadStarted.complete(Unit)
+            finishDownload.await()
+            downloadedChapter(comicId, chapterId)
+        }
+        library.onDelete = { comicId, chapterId, _ ->
+            deleted += comicId to chapterId
+        }
+        val manager = manager(library, store)
+        manager.enqueue(listOf(ChapterDownloadRequest(comicId = 8, chapterId = 71)))
+        runCurrent()
+        assertTrue(downloadStarted.isCompleted)
+
+        manager.deleteComic(comicId = 8)
+        runCurrent()
+        finishDownload.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ChapterDownloadStatus.CANCELLED, manager.progress.value.getValue(71).status)
+        assertTrue(store.getDownloadedChapters(comicId = 8).isEmpty())
+        assertTrue(deleted.contains(8L to 71L))
+        manager.release()
+    }
+
     private fun TestScope.manager(
         library: DownloadsTestLibrary,
         store: InMemoryLocalStore,
