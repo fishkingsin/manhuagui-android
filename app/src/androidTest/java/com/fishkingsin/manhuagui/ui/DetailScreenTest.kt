@@ -10,7 +10,12 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.downloads.ArchiveExporter
+import com.fishkingsin.manhuagui.downloads.OfflineDownloadManager
+import com.fishkingsin.manhuagui.downloads.ServiceController
 import com.fishkingsin.manhuagui.ui.detail.DetailScreen
+import java.io.File
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,12 +39,29 @@ class DetailScreenTest {
                 )
             }
         }
+        val localStore = InMemoryLocalStore()
+        val service = library.service()
+        val downloadRoot = File(composeRule.activity.cacheDir, "downloads").absolutePath
+        val downloadManager = OfflineDownloadManager(
+            service = service,
+            localStore = localStore,
+            downloadRoot = downloadRoot,
+            serviceController = ServiceController { },
+        )
+        val archiveExporter = ArchiveExporter(
+            service = service,
+            downloadRoot = downloadRoot,
+            exportRoot = File(composeRule.activity.cacheDir, "exports").absolutePath,
+        )
         composeRule.setContent {
             MaterialTheme {
                 DetailScreen(
                     nativeId = 1L,
-                    service = library.service(),
+                    service = service,
                     imageLoader = testImageLoader(composeRule.activity),
+                    offlineDownloadManager = downloadManager,
+                    archiveExporter = archiveExporter,
+                    localStore = localStore,
                     onBack = {},
                     onChapter = { _, _ -> },
                 )

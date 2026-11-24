@@ -2,6 +2,8 @@ package com.fishkingsin.manhuagui.ui.latest
 
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.settings.AppSettings
+import com.fishkingsin.manhuagui.settings.InMemorySettingsStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -192,8 +194,28 @@ class LatestViewModelTest {
         assertFalse(viewModel.state.value.loading)
     }
 
-    private fun viewModel(library: FakeLibrary, scope: TestScope) = LatestViewModel(
+    @Test
+    fun firstRefreshLoadsTheSavedDefaultUpdateWindow() = runTest {
+        val library = FakeLibrary()
+        val settingsStore = InMemorySettingsStore(
+            AppSettings(defaultUpdateWindow = AndroidUpdateWindow.ALL),
+        )
+        val viewModel = viewModel(library, this, settingsStore)
+
+        viewModel.refresh()
+        runCurrent()
+
+        assertEquals(AndroidUpdateWindow.ALL, viewModel.state.value.window)
+        assertEquals(listOf(1), library.latestPages)
+    }
+
+    private fun viewModel(
+        library: FakeLibrary,
+        scope: TestScope,
+        settingsStore: InMemorySettingsStore = InMemorySettingsStore(),
+    ) = LatestViewModel(
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
+        settingsStore = settingsStore,
         scope = scope.backgroundScope,
     )
 

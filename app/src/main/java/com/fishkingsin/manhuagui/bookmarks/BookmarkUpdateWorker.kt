@@ -22,18 +22,20 @@ class BookmarkUpdateWorker(appContext: Context, params: WorkerParameters) : Coro
     companion object {
         const val WORK_NAME = "bookmark_update_periodic"
 
-        fun schedulePeriodic(context: Context) {
+        fun schedulePeriodic(
+            context: Context,
+            intervalHours: Int,
+            policy: ExistingPeriodicWorkPolicy = ExistingPeriodicWorkPolicy.KEEP,
+        ) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
-            val request = PeriodicWorkRequestBuilder<BookmarkUpdateWorker>(6, TimeUnit.HOURS)
-                .setConstraints(constraints)
-                .build()
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                request,
-            )
+            val interval = intervalHours.takeIf { it > 0 } ?: 6
+            val request = PeriodicWorkRequestBuilder<BookmarkUpdateWorker>(
+                interval.toLong(),
+                TimeUnit.HOURS,
+            ).setConstraints(constraints).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK_NAME, policy, request)
         }
     }
 }

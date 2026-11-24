@@ -31,19 +31,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.ImageLoader
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.settings.SettingsStore
 import com.fishkingsin.manhuagui.ui.comic.ComicCard
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 
 @Composable
 fun LatestScreen(
     service: LibraryService,
+    settingsStore: SettingsStore,
     imageLoader: ImageLoader,
     onSearch: () -> Unit,
-    onBookmarks: () -> Unit,
     onComic: (Long) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(service, scope) { LatestViewModel(service, scope) }
+    val viewModel = remember(service, settingsStore, scope) { LatestViewModel(service, settingsStore, scope) }
     val uiState by viewModel.state.collectAsState()
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
@@ -69,10 +70,7 @@ fun LatestScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = "Latest", color = contentColor, fontSize = 26.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                EInkButton(label = "Bookmarks", onClick = onBookmarks)
-                EInkButton(label = "Search", onClick = onSearch)
-            }
+            EInkButton(label = "Search", onClick = onSearch)
         }
         Row(
             modifier = Modifier.fillMaxWidth(),

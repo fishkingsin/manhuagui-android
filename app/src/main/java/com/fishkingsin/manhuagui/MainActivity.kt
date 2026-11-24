@@ -8,7 +8,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.work.ExistingPeriodicWorkPolicy
 import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateNotification
+import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateWorker
 import com.fishkingsin.manhuagui.ui.AppNav
 import com.fishkingsin.manhuagui.ui.theme.ManhuaguiTheme
 
@@ -34,6 +36,17 @@ class MainActivity : ComponentActivity() {
                     imageLoader = appContainer.imageLoader,
                     localStore = appContainer.localStore,
                     checker = appContainer.bookmarkUpdateChecker,
+                    settingsStore = appContainer.settingsStore,
+                    downloadManager = appContainer.downloadManager,
+                    archiveExporter = appContainer.archiveExporter,
+                    downloadRoot = appContainer.downloadRoot,
+                    onIntervalChanged = { intervalHours ->
+                        BookmarkUpdateWorker.schedulePeriodic(
+                            this@MainActivity,
+                            intervalHours,
+                            ExistingPeriodicWorkPolicy.UPDATE,
+                        )
+                    },
                     startDestination = startDestination,
                 )
             }

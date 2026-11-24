@@ -1,5 +1,7 @@
 package com.fishkingsin.manhuagui.ui.detail
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -24,23 +25,33 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.DownloadedChapterRecord
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.data.ReadingProgress
+import com.fishkingsin.manhuagui.downloads.ArchiveExporter
+import com.fishkingsin.manhuagui.downloads.ChapterDownloadProgress
+import com.fishkingsin.manhuagui.downloads.OfflineDownloadManager
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import uniffi.manhuagui_ffi.ChapterItem
 import uniffi.manhuagui_ffi.ComicDetails
 
@@ -49,19 +60,68 @@ fun DetailScreen(
     nativeId: Long,
     service: LibraryService,
     imageLoader: ImageLoader,
+    offlineDownloadManager: OfflineDownloadManager,
+    archiveExporter: ArchiveExporter,
     onBack: () -> Unit,
     onChapter: (Long, String) -> Unit,
     localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, service, scope, localStore) {
-        DetailViewModel(nativeId = nativeId, service = service, localStore = localStore, scope = scope)
+    val viewModel = remember(nativeId, service, localStore, offlineDownloadManager, archiveExporter, scope) {
+        DetailViewModel(
+            nativeId = nativeId,
+            service = service,
+            localStore = localStore,
+            offlineDownloadManager = offlineDownloadManager,
+            archiveExporter = archiveExporter,
+            scope = scope,
+        )
     }
     val uiState by viewModel.state.collectAsState()
-    val comic = uiState.comic
-    val backgroundColor = MaterialTheme.colorScheme.background
-    val contentColor = MaterialTheme.colorScheme.onBackground
+    val downloadedChapters by viewModel.downloadedChapters.collectAsState()
+    val downloadProgress by viewModel.downloadProgress.collectAsState()
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    var pendingChapterExport by remember { mutableStateOf<Long?>(null) }
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val comic = uiState.comic
+
+    val createCbzDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.comicbook+zip"),
+    ) { uri ->
+        val chapterId = pendingChapterExport
+        pendingChapterExport = null
+        if (uri != null && chapterId != null) {
+            viewModel.exportChapterCbz(chapterId) { context.contentResolver.openOutputStream(uri) }
+        }
+    }
+    val createPdfDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        val chapterId = pendingChapterExport
+        pendingChapterExport = null
+        if (uri != null && chapterId != null) {
+            viewModel.exportChapterPdf(chapterId) { context.contentResolver.openOutputStream(uri) }
+        }
+    }
+    val chooseCbzDirectory = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val directory = DocumentFile.fromTreeUri(context, uri)
+            viewModel.exportComicCbz { fileName ->
+                val document = directory?.createFile("application/vnd.comicbook+zip", fileName)
+                document?.let { context.contentResolver.openOutputStream(it.uri) }
+            }
+        }
+    }
+    val choosePdfDirectory = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val directory = DocumentFile.fromTreeUri(context, uri)
+            viewModel.exportComicPdf { fileName ->
+                val document = directory?.createFile("application/pdf", fileName)
+                document?.let { context.contentResolver.openOutputStream(it.uri) }
+            }
+        }
+    }
 
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -69,6 +129,13 @@ fun DetailScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.exportResult.collectLatest { message ->
+            exportMessage = message
+            delay(3_000)
+            exportMessage = null
+        }
     }
     LaunchedEffect(viewModel) {
         val current = viewModel.state.value
@@ -80,7 +147,7 @@ fun DetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(backgroundColor)
+            .background(MaterialTheme.colorScheme.background)
             .safeDrawingPadding()
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -95,6 +162,7 @@ fun DetailScreen(
                 onClick = viewModel::toggleBookmark,
             )
         }
+        exportMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.onBackground) }
         when {
             uiState.loading -> Message(Modifier.weight(1f), "Loading…")
             uiState.error != null -> Column(
@@ -104,15 +172,32 @@ fun DetailScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
+                Text(uiState.error?.userMessage.orEmpty(), color = MaterialTheme.colorScheme.onBackground)
                 EInkButton(label = "Retry", onClick = viewModel::load)
             }
             comic != null -> DetailContent(
                 comic = comic,
                 chapters = uiState.chapters,
                 readingProgress = uiState.readingProgress,
+                downloadedChapters = downloadedChapters,
+                downloadProgress = downloadProgress,
                 imageLoader = imageLoader,
                 onChapter = onChapter,
+                onDownloadUnread = viewModel::downloadUnreadChapters,
+                onExportComicCbz = { chooseCbzDirectory.launch(null) },
+                onExportComicPdf = { choosePdfDirectory.launch(null) },
+                onDeleteAllDownloads = viewModel::deleteAllDownloads,
+                onDownloadChapter = viewModel::downloadChapter,
+                onCancelDownload = viewModel::cancelDownload,
+                onDeleteDownloadedChapter = viewModel::deleteDownloadedChapter,
+                onExportChapterCbz = { chapterId ->
+                    pendingChapterExport = chapterId
+                    createCbzDocument.launch("chapter-$chapterId.cbz")
+                },
+                onExportChapterPdf = { chapterId ->
+                    pendingChapterExport = chapterId
+                    createPdfDocument.launch("chapter-$chapterId.pdf")
+                },
                 modifier = Modifier.weight(1f),
             )
             else -> Message(Modifier.weight(1f), "Loading…")
@@ -125,11 +210,23 @@ private fun DetailContent(
     comic: ComicDetails,
     chapters: List<ChapterItem>,
     readingProgress: ReadingProgress?,
+    downloadedChapters: List<DownloadedChapterRecord>,
+    downloadProgress: Map<Long, ChapterDownloadProgress>,
     imageLoader: ImageLoader,
     onChapter: (Long, String) -> Unit,
+    onDownloadUnread: () -> Unit,
+    onExportComicCbz: () -> Unit,
+    onExportComicPdf: () -> Unit,
+    onDeleteAllDownloads: () -> Unit,
+    onDownloadChapter: (Long) -> Unit,
+    onCancelDownload: (Long) -> Unit,
+    onDeleteDownloadedChapter: (Long) -> Unit,
+    onExportChapterCbz: (Long) -> Unit,
+    onExportChapterPdf: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val contentColor = MaterialTheme.colorScheme.onBackground
+    val downloadedIds = remember(downloadedChapters) { downloadedChapters.mapTo(mutableSetOf()) { it.chapterId } }
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -160,6 +257,39 @@ private fun DetailContent(
                 if (comic.intro.isNotBlank()) {
                     Text(text = comic.intro, color = contentColor)
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    EInkButton(
+                        label = "Download Unread",
+                        onClick = onDownloadUnread,
+                        modifier = Modifier.weight(1f),
+                    )
+                    EInkButton(
+                        label = "Export CBZ",
+                        enabled = downloadedIds.isNotEmpty(),
+                        onClick = onExportComicCbz,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    EInkButton(
+                        label = "Export PDF",
+                        enabled = downloadedIds.isNotEmpty(),
+                        onClick = onExportComicPdf,
+                        modifier = Modifier.weight(1f),
+                    )
+                    EInkButton(
+                        label = "Delete Downloads",
+                        enabled = downloadedIds.isNotEmpty(),
+                        onClick = onDeleteAllDownloads,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
         readingProgress?.let { progress ->
@@ -180,60 +310,123 @@ private fun DetailContent(
             }
         } else {
             items(chapters, key = { it.chapterId }) { chapter ->
-                ChapterRow(chapter = chapter) {
-                    onChapter(chapter.chapterId, chapter.chapterTitle)
-                }
+                ChapterRow(
+                    chapter = chapter,
+                    isDownloaded = chapter.chapterId in downloadedIds,
+                    progress = downloadProgress[chapter.chapterId],
+                    onChapter = { onChapter(chapter.chapterId, chapter.chapterTitle) },
+                    onDownload = { onDownloadChapter(chapter.chapterId) },
+                    onCancel = { onCancelDownload(chapter.chapterId) },
+                    onDelete = { onDeleteDownloadedChapter(chapter.chapterId) },
+                    onExportCbz = { onExportChapterCbz(chapter.chapterId) },
+                    onExportPdf = { onExportChapterPdf(chapter.chapterId) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ChapterRow(chapter: ChapterItem, onClick: () -> Unit) {
+private fun ChapterRow(
+    chapter: ChapterItem,
+    isDownloaded: Boolean,
+    progress: ChapterDownloadProgress?,
+    onChapter: () -> Unit,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+    onExportCbz: () -> Unit,
+    onExportPdf: () -> Unit,
+) {
     val contentColor = MaterialTheme.colorScheme.onBackground
-    Row(
+    val presentation = chapterDownloadPresentation(isDownloaded, progress)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
             .border(1.dp, contentColor, RectangleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onChapter,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(text = chapter.groupName, color = contentColor)
-            Text(text = chapter.chapterTitle, color = contentColor)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(text = chapter.groupName, color = contentColor)
+                Text(text = chapter.chapterTitle, color = contentColor)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(text = "${chapter.chapterSize}p", color = contentColor)
+                Box(
+                    modifier = Modifier
+                        .border(1.dp, contentColor, RectangleShape)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(text = presentation.statusLabel, color = contentColor)
+                }
+            }
         }
-        Text(text = "${chapter.chapterSize}p", color = contentColor)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EInkButton(
+                label = presentation.action.label,
+                onClick = when (presentation.action) {
+                    ChapterDownloadAction.DOWNLOAD -> onDownload
+                    ChapterDownloadAction.CANCEL -> onCancel
+                    ChapterDownloadAction.DELETE -> onDelete
+                },
+                modifier = Modifier.weight(1f),
+            )
+            EInkButton(
+                label = "Export CBZ",
+                enabled = presentation.canExport,
+                onClick = onExportCbz,
+                modifier = Modifier.weight(1f),
+            )
+            EInkButton(
+                label = "Export PDF",
+                enabled = presentation.canExport,
+                onClick = onExportPdf,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
 @Composable
-private fun EInkButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun EInkButton(
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
         modifier = modifier
-            .height(48.dp)
+            .heightIn(min = 48.dp)
             .background(backgroundColor)
             .border(1.dp, contentColor, RectangleShape)
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = contentColor, fontSize = 16.sp)
+        Text(text = label, color = contentColor, fontSize = 14.sp)
     }
 }
 

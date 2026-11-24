@@ -3,10 +3,21 @@ package com.fishkingsin.manhuagui.ui.detail
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.BookmarkRecord
+import com.fishkingsin.manhuagui.data.DownloadedChapterRecord
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.data.ReadingProgress
+import com.fishkingsin.manhuagui.downloads.ArchiveExporter
+import com.fishkingsin.manhuagui.downloads.ChapterDownloadRequest
+import com.fishkingsin.manhuagui.downloads.ChapterDownloadStatus
+import com.fishkingsin.manhuagui.downloads.OfflineDownloadManager
+import com.fishkingsin.manhuagui.downloads.ServiceController
+import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -16,7 +27,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import uniffi.manhuagui_ffi.AndroidDownloadObserver
 import uniffi.manhuagui_ffi.AndroidExportFormat
 import uniffi.manhuagui_ffi.AndroidLibraryInterface
@@ -33,6 +46,9 @@ import uniffi.manhuagui_ffi.SearchPage
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModelTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
     @Test
     fun toggleBookmarkSeedsKnownChaptersAndSecondToggleRemovesIt() = runTest {
         val chapters = listOf(chapter(5, "Group", 2, 1.0), chapter(8, "Group", 2, 2.0))
@@ -319,19 +335,260 @@ class DetailViewModelTest {
         assertFalse(viewModel.state.value.loading)
     }
 
+    @Test
+    fun downloadChapterEnqueuesAndPublishesTheDownloadedRecordAndProgress() = runTest {
+        val otherDownloadStarted = CompletableDeferred<Unit>()
+        val finishOtherDownload = CompletableDeferred<Unit>()
+        val library = FakeLibrary().apply {
+            onGetComic = { comic(41, listOf(chapter(5, "Group", 2, 1.0))) }
+            onDownloadChapter = { comicId, chapterId ->
+                if (comicId == 42L) {
+                    otherDownloadStarted.complete(Unit)
+                    finishOtherDownload.await()
+                }
+                DownloadedChapter(
+                    comicId = comicId,
+                    comicTitle = "Comic $comicId",
+                    chapterId = chapterId,
+                    chapterTitle = "Chapter $chapterId",
+                    groupName = "Group",
+                    order = chapterId.toDouble(),
+                    pageCount = 2,
+                    chapterDir = "/offline/$comicId/$chapterId",
+                )
+            }
+        }
+        val viewModel = viewModel(
+            41,
+            library,
+            this,
+            initialRequests = listOf(ChapterDownloadRequest(42, 99)),
+        )
+
+        viewModel.load()
+        runCurrent()
+        assertTrue(otherDownloadStarted.isCompleted)
+        assertTrue(viewModel.downloadProgress.value.isEmpty())
+
+        viewModel.downloadChapter(5)
+        runCurrent()
+        assertEquals(ChapterDownloadStatus.QUEUED, viewModel.downloadProgress.value.getValue(5).status)
+
+        finishOtherDownload.complete(Unit)
+        runCurrent()
+
+        assertEquals(setOf(5L, 99L), library.downloadedChapterIds.toSet())
+        assertEquals(listOf(5L), viewModel.downloadedChapters.value.map { it.chapterId })
+        assertEquals(ChapterDownloadStatus.COMPLETED, viewModel.downloadProgress.value.getValue(5).status)
+    }
+
+    @Test
+    fun downloadUnreadChaptersOnlyQueuesChaptersBeforeSavedProgress() = runTest {
+        val chapters = listOf(
+            chapter(1, "Group", 4, 1.0),
+            chapter(2, "Group", 4, 2.0),
+            chapter(3, "Group", 4, 3.0),
+            chapter(4, "Group", 4, 4.0),
+        )
+        val store = InMemoryLocalStore().apply {
+            saveReadingProgress(
+                ReadingProgress(
+                    comicId = 41,
+                    chapterId = 2,
+                    chapterTitle = "Chapter 2",
+                    pageIndex = 0,
+                    updatedAtEpochMs = 10,
+                ),
+            )
+        }
+        val library = FakeLibrary().apply { onGetComic = { comic(41, chapters) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.downloadUnreadChapters()
+        runCurrent()
+
+        assertEquals(listOf(4L, 3L), library.downloadedChapterIds)
+    }
+
+    @Test
+    fun downloadUnreadChaptersQueuesEveryChapterWhenProgressIsAbsent() = runTest {
+        val chapters = listOf(
+            chapter(1, "Group", 4, 1.0),
+            chapter(2, "Group", 4, 2.0),
+            chapter(3, "Group", 4, 3.0),
+            chapter(4, "Group", 4, 4.0),
+        )
+        val library = FakeLibrary().apply { onGetComic = { comic(41, chapters) } }
+        val viewModel = viewModel(41, library, this)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.downloadUnreadChapters()
+        runCurrent()
+
+        assertEquals(listOf(4L, 3L, 2L, 1L), library.downloadedChapterIds)
+    }
+
+    @Test
+    fun deleteAllDownloadsRemovesEveryLocalAndDiskRecordForTheComic() = runTest {
+        val store = InMemoryLocalStore().apply {
+            upsertDownloadedChapter(downloadedRecord(7))
+            upsertDownloadedChapter(downloadedRecord(8))
+        }
+        val library = FakeLibrary()
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.deleteAllDownloads()
+        runCurrent()
+
+        assertEquals(setOf(7L, 8L), library.deletedChapterIds)
+        assertTrue(store.getDownloadedChapters(41).isEmpty())
+    }
+
+    @Test
+    fun cancelAndDeleteChapterUpdateTheDownloadAndLocalRecords() = runTest {
+        val store = InMemoryLocalStore().apply { upsertDownloadedChapter(downloadedRecord(7)) }
+        val library = FakeLibrary()
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.downloadChapter(8)
+        viewModel.cancelDownload(8)
+        runCurrent()
+        viewModel.deleteDownloadedChapter(7)
+        runCurrent()
+
+        assertEquals(ChapterDownloadStatus.CANCELLED, viewModel.downloadProgress.value.getValue(8).status)
+        assertTrue(store.getDownloadedChapters(41).isEmpty())
+        assertTrue(viewModel.downloadedChapters.value.isEmpty())
+        assertEquals(setOf(7L), library.deletedChapterIds)
+    }
+
+    @Test
+    fun exportActionsWriteFilesAndEmitOneShotResults() = runTest {
+        val store = InMemoryLocalStore().apply {
+            upsertDownloadedChapter(downloadedRecord(7))
+            upsertDownloadedChapter(downloadedRecord(8))
+        }
+        val library = FakeLibrary().apply {
+            onExportChapters = { comicId, chapterIds, downloadRoot, exportRoot, format ->
+                exportRequests += ExportRequest(comicId, chapterIds.toSet(), format)
+                chapterIds.map { chapterId ->
+                    val name = "chapter-$chapterId.${format.name.lowercase()}"
+                    val file = File(exportRoot, name).apply {
+                        writeBytes("$comicId:$chapterId:${format.name}".toByteArray())
+                    }
+                    ExportedChapterFile(chapterId, name, file.absolutePath)
+                }
+            }
+        }
+        val viewModel = viewModel(41, library, this, localStore = store)
+        runCurrent()
+        val chapterCbz = ByteArrayOutputStream()
+        val chapterPdf = ByteArrayOutputStream()
+        val cbzMessage = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.exportResult.first()
+        }
+        viewModel.exportChapterCbz(7) { chapterCbz }
+        runCurrent()
+        assertEquals("Export completed.", cbzMessage.await())
+
+        val pdfMessage = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.exportResult.first()
+        }
+        viewModel.exportChapterPdf(7) { chapterPdf }
+        runCurrent()
+        assertEquals("Export completed.", pdfMessage.await())
+
+        val comicCbz = mutableMapOf<String, ByteArrayOutputStream>()
+        val comicCbzMessage = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.exportResult.first()
+        }
+        viewModel.exportComicCbz { fileName -> comicCbz.getOrPut(fileName, ::ByteArrayOutputStream) }
+        runCurrent()
+        assertEquals("Export completed.", comicCbzMessage.await())
+
+        val comicPdf = mutableMapOf<String, ByteArrayOutputStream>()
+        val comicPdfMessage = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.exportResult.first()
+        }
+        viewModel.exportComicPdf { fileName -> comicPdf.getOrPut(fileName, ::ByteArrayOutputStream) }
+        runCurrent()
+        assertEquals("Export completed.", comicPdfMessage.await())
+
+        assertEquals("41:7:CBZ", chapterCbz.toString())
+        assertEquals("41:7:PDF", chapterPdf.toString())
+        assertEquals(setOf("chapter-7.cbz", "chapter-8.cbz"), comicCbz.keys)
+        assertEquals("41:7:CBZ", comicCbz.getValue("chapter-7.cbz").toString())
+        assertEquals("41:8:CBZ", comicCbz.getValue("chapter-8.cbz").toString())
+        assertEquals(setOf("chapter-7.pdf", "chapter-8.pdf"), comicPdf.keys)
+        assertEquals("41:7:PDF", comicPdf.getValue("chapter-7.pdf").toString())
+        assertEquals("41:8:PDF", comicPdf.getValue("chapter-8.pdf").toString())
+        assertEquals(
+            listOf(
+                ExportRequest(41, setOf(7), AndroidExportFormat.CBZ),
+                ExportRequest(41, setOf(7), AndroidExportFormat.PDF),
+                ExportRequest(41, setOf(7, 8), AndroidExportFormat.CBZ),
+                ExportRequest(41, setOf(7, 8), AndroidExportFormat.PDF),
+            ),
+            library.exportRequests,
+        )
+    }
+
+    private fun downloadedRecord(chapterId: Long) = DownloadedChapterRecord(
+        comicId = 41,
+        comicTitle = "Comic 41",
+        chapterId = chapterId,
+        chapterTitle = "Chapter $chapterId",
+        groupName = "Group",
+        order = chapterId.toDouble(),
+        pageCount = 2,
+        chapterDir = "/offline/41/$chapterId",
+        downloadedAtEpochMs = 10,
+    )
+
+    private data class ExportRequest(
+        val comicId: Long,
+        val chapterIds: Set<Long>,
+        val format: AndroidExportFormat,
+    )
+
     private fun viewModel(
         nativeId: Long,
         library: FakeLibrary,
         scope: TestScope,
         localStore: LocalStore = InMemoryLocalStore(),
         clockMs: () -> Long = { 1_234L },
-    ) = DetailViewModel(
-        nativeId = nativeId,
-        service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
-        localStore = localStore,
-        clockMs = clockMs,
-        scope = scope.backgroundScope,
-    )
+        initialRequests: List<ChapterDownloadRequest> = emptyList(),
+    ): DetailViewModel {
+        val io = StandardTestDispatcher(scope.testScheduler)
+        val service = LibraryService(library, io)
+        val downloadRoot = temporaryFolder.newFolder().absolutePath
+        val manager = OfflineDownloadManager(
+            service = service,
+            localStore = localStore,
+            downloadRoot = downloadRoot,
+            io = io,
+            serviceController = ServiceController { },
+        )
+        val exporter = ArchiveExporter(
+            service = service,
+            downloadRoot = downloadRoot,
+            exportRoot = temporaryFolder.newFolder().absolutePath,
+            io = io,
+        )
+        manager.enqueue(initialRequests)
+        return DetailViewModel(
+            nativeId = nativeId,
+            service = service,
+            localStore = localStore,
+            offlineDownloadManager = manager,
+            archiveExporter = exporter,
+            clockMs = clockMs,
+            scope = scope.backgroundScope,
+        )
+    }
 
     private fun chapter(id: Long, groupName: String, groupSize: Long, order: Double) = ChapterItem(
         chapterId = id,
@@ -360,7 +617,29 @@ class DetailViewModelTest {
 
     private class FakeLibrary : AndroidLibraryInterface {
         val comicIds = mutableListOf<Long>()
+        val downloadedChapterIds = mutableListOf<Long>()
+        val deletedChapterIds = mutableSetOf<Long>()
+        val exportRequests = mutableListOf<ExportRequest>()
         var onGetComic: suspend () -> ComicDetails = { error("Not used by these tests") }
+        var onDownloadChapter: suspend (Long, Long) -> DownloadedChapter = { comicId, chapterId ->
+            DownloadedChapter(
+                comicId = comicId,
+                comicTitle = "Comic $comicId",
+                chapterId = chapterId,
+                chapterTitle = "Chapter $chapterId",
+                groupName = "Group",
+                order = chapterId.toDouble(),
+                pageCount = 2,
+                chapterDir = "/offline/$comicId/$chapterId",
+            )
+        }
+        var onExportChapters: suspend (
+            Long,
+            List<Long>,
+            String,
+            String,
+            AndroidExportFormat,
+        ) -> List<ExportedChapterFile> = { _, _, _, _, _ -> emptyList() }
 
         override suspend fun browseWithin(
             window: AndroidUpdateWindow,
@@ -386,14 +665,19 @@ class DetailViewModelTest {
             nativeId: Long,
             chapterId: Long,
             downloadRoot: String,
-        ) = error("Not used by these tests")
+        ) {
+            deletedChapterIds += chapterId
+        }
 
         override suspend fun downloadChapter(
             nativeId: Long,
             chapterId: Long,
             downloadRoot: String,
             observer: AndroidDownloadObserver,
-        ): DownloadedChapter = error("Not used by these tests")
+        ): DownloadedChapter {
+            downloadedChapterIds += chapterId
+            return onDownloadChapter(nativeId, chapterId)
+        }
 
         override suspend fun exportChapters(
             nativeId: Long,
@@ -401,7 +685,7 @@ class DetailViewModelTest {
             downloadRoot: String,
             exportRoot: String,
             format: AndroidExportFormat,
-        ): List<ExportedChapterFile> = error("Not used by these tests")
+        ): List<ExportedChapterFile> = onExportChapters(nativeId, chapterIds, downloadRoot, exportRoot, format)
 
         override suspend fun readLocalChapterNavigation(
             nativeId: Long,

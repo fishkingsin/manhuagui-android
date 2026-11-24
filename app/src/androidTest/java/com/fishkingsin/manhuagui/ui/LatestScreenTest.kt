@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.fishkingsin.manhuagui.settings.InMemorySettingsStore
 import com.fishkingsin.manhuagui.ui.latest.LatestScreen
 import org.junit.Rule
 import org.junit.Test
@@ -31,9 +32,9 @@ class LatestScreenTest {
             MaterialTheme {
                 LatestScreen(
                     service = library.service(),
+                    settingsStore = InMemorySettingsStore(),
                     imageLoader = testImageLoader(composeRule.activity),
                     onSearch = {},
-                    onBookmarks = {},
                     onComic = {},
                 )
             }
@@ -54,9 +55,9 @@ class LatestScreenTest {
             MaterialTheme {
                 LatestScreen(
                     service = library.service(),
+                    settingsStore = InMemorySettingsStore(),
                     imageLoader = testImageLoader(composeRule.activity),
                     onSearch = {},
-                    onBookmarks = {},
                     onComic = {},
                 )
             }

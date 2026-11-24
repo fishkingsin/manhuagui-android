@@ -29,7 +29,6 @@ class BookmarksScreenTest {
                 BookmarksScreen(
                     localStore = store,
                     checker = checker,
-                    onBack = {},
                     onComic = {},
                     imageLoader = testImageLoader(composeRule.activity),
                 )
