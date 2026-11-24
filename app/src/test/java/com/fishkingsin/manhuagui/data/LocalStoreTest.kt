@@ -1,7 +1,10 @@
 package com.fishkingsin.manhuagui.data
 
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -82,6 +85,30 @@ class LocalStoreTest {
     }
 
     @Test
+    fun updateBookmarkIfPresentTransformsAndReturnsAnExistingRecord() = runTest {
+        val store = InMemoryLocalStore()
+        val initial = bookmark(comicId = 11)
+        store.upsertBookmark(initial)
+
+        val updated = updateBookmarkIfPresent(store, 11) {
+            it.copy(title = "Updated title", newChapterCount = 3)
+        }
+
+        assertEquals(initial.copy(title = "Updated title", newChapterCount = 3), updated)
+        assertEquals(updated, store.getBookmark(11))
+    }
+
+    @Test
+    fun updateBookmarkIfPresentReturnsNullWithoutInsertingAnAbsentRecord() = runTest {
+        val store = InMemoryLocalStore()
+
+        val updated = updateBookmarkIfPresent(store, 12) { it.copy(title = "Unexpected") }
+
+        assertNull(updated)
+        assertNull(store.getBookmark(12))
+    }
+
+    @Test
     fun readingProgressOverwritesBySourceAndComic() = runTest {
         val store = InMemoryLocalStore()
         store.saveReadingProgress(progress(comicId = 7, chapterId = 10, pageIndex = 3))
@@ -92,6 +119,17 @@ class LocalStoreTest {
         assertEquals(progress(comicId = 7, chapterId = 11, pageIndex = 4), store.getReadingProgress(7))
         assertEquals(progress(comicId = 7, sourceId = "other", chapterId = 12), store.getReadingProgress(7, "other"))
         assertEquals(progress(comicId = 8, chapterId = 13), store.getReadingProgress(8))
+    }
+
+    private suspend fun updateBookmarkIfPresent(
+        store: LocalStore,
+        comicId: Long,
+        transform: (BookmarkRecord) -> BookmarkRecord,
+    ): BookmarkRecord? = suspendCoroutine { continuation ->
+        val method = store.javaClass.methods.firstOrNull { it.name == "updateBookmarkIfPresent" }
+            ?: throw AssertionError("LocalStore does not support atomic bookmark updates")
+        val result = method.invoke(store, comicId, DEFAULT_SOURCE_ID, transform, continuation)
+        if (result !== COROUTINE_SUSPENDED) continuation.resume(result as BookmarkRecord?)
     }
 
     private fun bookmark(
