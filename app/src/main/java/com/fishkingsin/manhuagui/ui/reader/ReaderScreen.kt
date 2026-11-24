@@ -184,7 +184,7 @@ fun ReaderScreen(
                 Text("Loading…", color = contentColor)
             }
             else -> {
-                val pagerState = rememberPagerState(pageCount = { uiState.pages.size })
+                val pagerState = rememberPagerState(initialPage = uiState.pageIndex) { uiState.pages.size }
 
                 LaunchedEffect(pagerState, viewModel) {
                     snapshotFlow { pagerState.currentPage }

@@ -3,6 +3,8 @@ package com.fishkingsin.manhuagui.bookmarks
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.DEFAULT_SOURCE_ID
 import com.fishkingsin.manhuagui.data.LocalStore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.manhuagui_ffi.ChapterItem
 
 data class UpdatedBookmark(
@@ -36,25 +38,28 @@ class BookmarkUpdateChecker(
     private val jitterMs: () -> Long = { kotlin.random.Random.nextLong(1000L, 2001L) },
     private val clockMs: () -> Long = System::currentTimeMillis,
 ) {
-    suspend fun checkAll(sourceId: String = DEFAULT_SOURCE_ID): List<UpdatedBookmark> {
+    private val checkMutex = Mutex()
+
+    suspend fun checkAll(sourceId: String = DEFAULT_SOURCE_ID): List<UpdatedBookmark> = checkMutex.withLock {
         val bookmarks = localStore.getBookmarks(sourceId)
         val updated = mutableListOf<UpdatedBookmark>()
         bookmarks.forEachIndexed { index, bookmark ->
             if (index > 0) delayMs(jitterMs().coerceIn(1000L, 2000L))
             val comic = service.getComic(bookmark.comicId).getOrNull() ?: return@forEachIndexed
+            val current = localStore.getBookmark(bookmark.comicId, sourceId) ?: return@forEachIndexed
             val now = clockMs()
             val currentIds = comic.chapters.map { it.chapterId }.toSet()
-            val newIds = currentIds - bookmark.lastKnownChapterIds
+            val newIds = currentIds - current.lastKnownChapterIds
             val newestTitle = comic.chapters.sortedWith(
                 compareByDescending<ChapterItem> { it.groupSize }
                     .thenBy { it.groupName }
                     .thenByDescending { it.order },
-            ).firstOrNull()?.chapterTitle ?: bookmark.latestChapterTitle
+            ).firstOrNull()?.chapterTitle ?: current.latestChapterTitle
 
             if (newIds.isNotEmpty()) {
-                val totalNewCount = bookmark.newChapterCount + newIds.size
+                val totalNewCount = current.newChapterCount + newIds.size
                 localStore.upsertBookmark(
-                    bookmark.copy(
+                    current.copy(
                         title = comic.title,
                         coverUrl = comic.coverUrl,
                         lastKnownChapterIds = currentIds,
@@ -66,14 +71,14 @@ class BookmarkUpdateChecker(
                     ),
                 )
                 updated += UpdatedBookmark(
-                    comicId = bookmark.comicId,
+                    comicId = current.comicId,
                     title = comic.title,
                     latestChapterTitle = newestTitle,
                     newChapterCount = newIds.size,
                 )
             } else {
                 localStore.upsertBookmark(
-                    bookmark.copy(
+                    current.copy(
                         title = comic.title,
                         coverUrl = comic.coverUrl,
                         lastKnownChapterIds = currentIds,
@@ -83,6 +88,6 @@ class BookmarkUpdateChecker(
                 )
             }
         }
-        return updated
+        updated
     }
 }
