@@ -2,26 +2,30 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use library::{
     downloader::{
-        download_manager::DownloadManager, download_task::DownloadTask,
-        download_task_state::DownloadTaskState, DownloadDeps,
+        download_task::DownloadTask, download_task_state::DownloadTaskState, DownloadDeps,
     },
     events::{TaskUpdatePayload, EVENT_TASK_UPDATE},
     Library,
 };
 use parking_lot::{Mutex, RwLock};
+use reqwest_middleware::ClientWithMiddleware;
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use source_api::{
     ChapterInfo, Comic, CoreConfig, EventObserver, ExportSkipMode, LibraryEvent, PageFetcher,
     PageRef, ProxyMode, Source, UpdateWindow,
 };
 use source_manhuagui::{ManhuaguiClient, ManhuaguiSource};
-use tokio::sync::watch;
+use tokio::sync::{watch, Semaphore};
 use walkdir::{DirEntry, WalkDir};
 
 use crate::types::{
@@ -34,13 +38,23 @@ use crate::types::{
 pub struct AndroidLibrary {
     inner: Library,
     active_downloads: Mutex<HashMap<i64, watch::Sender<()>>>,
+    img_client: Arc<RwLock<ClientWithMiddleware>>,
+    chapter_sem: Arc<Semaphore>,
+    img_sem: Arc<Semaphore>,
+    byte_per_sec: Arc<AtomicU64>,
 }
 
 impl AndroidLibrary {
     pub fn with_library(library: Library) -> Self {
+        let config = android_core_config("", "");
+        let resources = shared_download_resources(&config);
         Self {
             inner: library,
             active_downloads: Mutex::new(HashMap::new()),
+            img_client: resources.img_client,
+            chapter_sem: resources.chapter_sem,
+            img_sem: resources.img_sem,
+            byte_per_sec: resources.byte_per_sec,
         }
     }
 
@@ -66,6 +80,31 @@ fn android_core_config(download_root: &str, export_root: &str) -> CoreConfig {
         proxy_mode: ProxyMode::System,
         export_skip_mode: ExportSkipMode::None,
         ..CoreConfig::default()
+    }
+}
+
+struct SharedDownloadResources {
+    img_client: Arc<RwLock<ClientWithMiddleware>>,
+    chapter_sem: Arc<Semaphore>,
+    img_sem: Arc<Semaphore>,
+    byte_per_sec: Arc<AtomicU64>,
+}
+
+fn shared_download_resources(config: &CoreConfig) -> SharedDownloadResources {
+    let client = reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(config.img_timeout_sec))
+        .build()
+        .unwrap();
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+    let img_client = reqwest_middleware::ClientBuilder::new(client)
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
+
+    SharedDownloadResources {
+        img_client: Arc::new(RwLock::new(img_client)),
+        chapter_sem: Arc::new(Semaphore::new(config.chapter_concurrency)),
+        img_sem: Arc::new(Semaphore::new(config.img_concurrency)),
+        byte_per_sec: Arc::new(AtomicU64::new(0)),
     }
 }
 
@@ -183,7 +222,8 @@ struct DownloadRegistration<'a> {
     active_downloads: &'a Mutex<HashMap<i64, watch::Sender<()>>>,
     chapter_id: i64,
     delete_sender: watch::Sender<()>,
-    temp_dir: PathBuf,
+    reservation_receiver: watch::Receiver<()>,
+    temp_dir: Option<PathBuf>,
     finished: bool,
 }
 
@@ -191,19 +231,47 @@ impl<'a> DownloadRegistration<'a> {
     fn new(
         active_downloads: &'a Mutex<HashMap<i64, watch::Sender<()>>>,
         chapter_id: i64,
-        delete_sender: watch::Sender<()>,
-        temp_dir: PathBuf,
-    ) -> Self {
-        active_downloads
-            .lock()
-            .insert(chapter_id, delete_sender.clone());
-        Self {
+    ) -> Result<Self, AndroidError> {
+        let (reservation_sender, reservation_receiver) = watch::channel(());
+        let mut active_entries = active_downloads.lock();
+        if active_entries.contains_key(&chapter_id) {
+            return Err(AndroidError::Cancelled {
+                detail: format!("Chapter {chapter_id} download is already active"),
+            });
+        }
+        active_entries.insert(chapter_id, reservation_sender.clone());
+        drop(active_entries);
+
+        Ok(Self {
             active_downloads,
             chapter_id,
-            delete_sender,
-            temp_dir,
+            delete_sender: reservation_sender,
+            reservation_receiver,
+            temp_dir: None,
             finished: false,
+        })
+    }
+
+    fn replace_sender(
+        &mut self,
+        delete_sender: watch::Sender<()>,
+        temp_dir: PathBuf,
+    ) -> Result<(), AndroidError> {
+        self.temp_dir = Some(temp_dir);
+        let mut active_downloads = self.active_downloads.lock();
+        let reservation_is_active = active_downloads
+            .get(&self.chapter_id)
+            .is_some_and(|sender| sender.same_channel(&self.delete_sender));
+        if !reservation_is_active || self.reservation_receiver.has_changed().unwrap_or(true) {
+            drop(active_downloads);
+            delete_sender.send_replace(());
+            return Err(AndroidError::Cancelled {
+                detail: format!("Cancelled chapter {}", self.chapter_id),
+            });
         }
+        active_downloads.insert(self.chapter_id, delete_sender.clone());
+        self.delete_sender = delete_sender;
+        Ok(())
     }
 
     fn finish(&mut self) {
@@ -225,8 +293,10 @@ impl<'a> DownloadRegistration<'a> {
 impl Drop for DownloadRegistration<'_> {
     fn drop(&mut self) {
         if !self.finished {
-            let _ = self.delete_sender.send(());
-            let _ = fs::remove_dir_all(&self.temp_dir);
+            self.delete_sender.send_replace(());
+            if let Some(temp_dir) = &self.temp_dir {
+                let _ = fs::remove_dir_all(temp_dir);
+            }
         }
         self.unregister();
     }
@@ -244,9 +314,14 @@ impl AndroidLibrary {
         let source = ManhuaguiSource::new(ManhuaguiClient::new(&config));
         let inner = Library::new();
         inner.register_source(Arc::new(source));
+        let resources = shared_download_resources(&config);
         Self {
             inner,
             active_downloads: Mutex::new(HashMap::new()),
+            img_client: resources.img_client,
+            chapter_sem: resources.chapter_sem,
+            img_sem: resources.img_sem,
+            byte_per_sec: resources.byte_per_sec,
         }
     }
 
@@ -332,7 +407,7 @@ impl AndroidLibrary {
 
     pub fn cancel_download(&self, chapter_id: i64) {
         if let Some(delete_sender) = self.active_downloads.lock().remove(&chapter_id) {
-            let _ = delete_sender.send(());
+            delete_sender.send_replace(());
         }
     }
 
@@ -566,11 +641,16 @@ impl AndroidLibrary {
         download_root: String,
         observer: Arc<dyn AndroidDownloadObserver>,
     ) -> Result<DownloadedChapter, AndroidError> {
+        let mut registration = DownloadRegistration::new(&self.active_downloads, chapter_id)?;
         let source = self.source()?;
-        let mut comic = source
-            .get_comic(native_id)
-            .await
-            .map_err(AndroidError::from)?;
+        let mut comic = tokio::select! {
+            comic = source.get_comic(native_id) => comic.map_err(AndroidError::from)?,
+            _ = registration.reservation_receiver.changed() => {
+                return Err(AndroidError::Cancelled {
+                    detail: format!("Cancelled chapter {chapter_id}"),
+                });
+            }
+        };
         let config = android_core_config(&download_root, &download_root);
         comic
             .ensure_download_dir_fields(&config)
@@ -584,36 +664,33 @@ impl AndroidLibrary {
         });
         let _observer_disconnect = AndroidObserverDisconnect(event_observer.clone());
         let fetcher = Arc::new(SourcePageFetcher { source });
-        let manager = DownloadManager::new(
-            Arc::new(RwLock::new(config)),
-            fetcher,
-            event_observer.clone(),
-        );
         let deps = DownloadDeps {
-            config: manager.config.clone(),
-            observer: manager.observer.clone(),
-            fetcher: manager.fetcher.clone(),
-            chapter_sem: manager.chapter_sem.clone(),
-            img_sem: manager.img_sem.clone(),
-            byte_per_sec: manager.byte_per_sec.clone(),
-            img_client: manager.img_client.clone(),
+            config: Arc::new(RwLock::new(config)),
+            observer: event_observer.clone(),
+            fetcher,
+            chapter_sem: self.chapter_sem.clone(),
+            img_sem: self.img_sem.clone(),
+            byte_per_sec: self.byte_per_sec.clone(),
+            img_client: self.img_client.clone(),
         };
         let task = DownloadTask::new(deps, comic, chapter_id).map_err(parse_error)?;
-        let chapter_download_dir = task
-            .chapter_info
-            .chapter_download_dir
-            .clone()
-            .ok_or_else(|| parse_error("Chapter download directory is missing"))?;
-        let temp_download_dir = task
-            .chapter_info
-            .get_temp_download_dir()
-            .map_err(parse_error)?;
-        let mut registration = DownloadRegistration::new(
-            &self.active_downloads,
-            chapter_id,
-            task.delete_sender.clone(),
-            temp_download_dir.clone(),
-        );
+        let chapter_download_dir = task.chapter_info.chapter_download_dir.clone();
+        let temp_download_dir = task.chapter_info.get_temp_download_dir();
+        let (chapter_download_dir, temp_download_dir) =
+            match (chapter_download_dir, temp_download_dir) {
+                (Some(chapter_download_dir), Ok(temp_download_dir)) => {
+                    (chapter_download_dir, temp_download_dir)
+                }
+                (None, _) => {
+                    task.delete_sender.send_replace(());
+                    return Err(parse_error("Chapter download directory is missing"));
+                }
+                (_, Err(error)) => {
+                    task.delete_sender.send_replace(());
+                    return Err(parse_error(error));
+                }
+            };
+        registration.replace_sender(task.delete_sender.clone(), temp_download_dir.clone())?;
         let mut state_rx = task.state_sender.subscribe();
         let mut delete_rx = task.delete_sender.subscribe();
 
