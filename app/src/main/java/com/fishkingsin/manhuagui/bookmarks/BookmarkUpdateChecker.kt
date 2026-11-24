@@ -52,11 +52,7 @@ class BookmarkUpdateChecker(
             ).firstOrNull()?.chapterTitle ?: bookmark.latestChapterTitle
 
             if (newIds.isNotEmpty()) {
-                val totalNewCount = if (bookmark.hasUnreadUpdate) {
-                    bookmark.newChapterCount + newIds.size
-                } else {
-                    newIds.size
-                }
+                val totalNewCount = bookmark.newChapterCount + newIds.size
                 localStore.upsertBookmark(
                     bookmark.copy(
                         title = comic.title,
