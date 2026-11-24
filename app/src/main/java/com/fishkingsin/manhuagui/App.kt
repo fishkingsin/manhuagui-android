@@ -14,6 +14,9 @@ import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.AppDatabase
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.data.RoomLocalStore
+import com.fishkingsin.manhuagui.downloads.DownloadForegroundService
+import com.fishkingsin.manhuagui.downloads.OfflineDownloadManager
+import com.fishkingsin.manhuagui.downloads.ServiceController
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import okio.Path.Companion.toOkioPath
@@ -38,6 +41,17 @@ class AppContainer(
     val library = AndroidLibrary()
     val libraryService = LibraryService(library, io)
     val localStore: LocalStore = RoomLocalStore(AppDatabase.build(context), io)
+    val downloadManager = OfflineDownloadManager(
+        service = libraryService,
+        localStore = localStore,
+        downloadRoot = context.filesDir.resolve("downloaded").absolutePath,
+        io = io,
+        serviceController = object : ServiceController {
+            override fun onQueueStarted() = DownloadForegroundService.start(context)
+
+            override fun onQueueDrained() = DownloadForegroundService.stop(context)
+        },
+    )
     val bookmarkUpdateChecker = BookmarkUpdateChecker(localStore, libraryService)
     val imageLoader = ImageLoader.Builder(context)
         .components {
