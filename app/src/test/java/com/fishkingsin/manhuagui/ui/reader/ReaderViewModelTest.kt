@@ -324,6 +324,30 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun offlineOnlyModePromptsWhenDownloadedRecordHasNoUsableDirectory() = runTest {
+        val root = Files.createTempDirectory("reader-missing-local-pages").toFile()
+        try {
+            val store = InMemoryLocalStore()
+            store.upsertDownloadedChapter(downloadedChapter(File(root, "missing")))
+            val library = FakeLibrary()
+            val viewModel = viewModel(
+                library,
+                this,
+                localStore = store,
+                settingsStore = InMemorySettingsStore(AppSettings(offlineOnlyMode = true)),
+            )
+
+            viewModel.load()
+            runCurrent()
+
+            assertTrue(viewModel.state.value.awaitingOfflineStreamConfirmation)
+            assertEquals(emptyList<Pair<Long, Long>>(), library.chapterQueries)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun offlineOnlyModePromptsUntilStreamingIsConfirmed() = runTest {
         val page = imagePage(1)
         val library = FakeLibrary().apply {
