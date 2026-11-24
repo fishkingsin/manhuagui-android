@@ -140,6 +140,38 @@ class OfflineDownloadManagerTest {
     }
 
     @Test
+    fun cancellingActiveDownloadBeforeItReturnsCleansFilesWithoutPersisting() = runTest {
+        val store = InMemoryLocalStore()
+        val library = DownloadsTestLibrary()
+        val downloadStarted = CompletableDeferred<Unit>()
+        val finishDownload = CompletableDeferred<Unit>()
+        val deleted = mutableListOf<Pair<Long, Long>>()
+        library.onDownload = { comicId, chapterId, _, _ ->
+            downloadStarted.complete(Unit)
+            finishDownload.await()
+            downloadedChapter(comicId, chapterId)
+        }
+        library.onDelete = { comicId, chapterId, root ->
+            assertEquals("/offline", root)
+            deleted += comicId to chapterId
+        }
+        val manager = manager(library, store)
+        manager.enqueue(listOf(ChapterDownloadRequest(comicId = 8, chapterId = 35)))
+        runCurrent()
+        assertTrue(downloadStarted.isCompleted)
+
+        manager.cancel(chapterId = 35)
+        runCurrent()
+        finishDownload.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ChapterDownloadStatus.CANCELLED, manager.progress.value.getValue(35).status)
+        assertTrue(store.getDownloadedChapters(comicId = 8).isEmpty())
+        assertEquals(listOf(8L to 35L), deleted)
+        manager.release()
+    }
+
+    @Test
     fun cancellingCompletedChapterKeepsItsCompletedProgressAndRecord() = runTest {
         val store = InMemoryLocalStore()
         val library = DownloadsTestLibrary()
@@ -218,6 +250,27 @@ class OfflineDownloadManagerTest {
         assertEquals(setOf(10L to 51L, 10L to 52L), deleted.toSet())
         assertTrue(store.getDownloadedChapters(comicId = 10).isEmpty())
         assertEquals(listOf(53L), store.getDownloadedChapters(comicId = 11).map { it.chapterId })
+        manager.release()
+    }
+
+    @Test
+    fun deleteComicCancelsQueuedChapterBeforeItDownloads() = runTest {
+        val store = InMemoryLocalStore()
+        val library = DownloadsTestLibrary()
+        val downloads = mutableListOf<Long>()
+        library.onDownload = { comicId, chapterId, _, _ ->
+            downloads += chapterId
+            downloadedChapter(comicId, chapterId)
+        }
+        val manager = manager(library, store)
+        manager.enqueue(listOf(ChapterDownloadRequest(comicId = 12, chapterId = 61)))
+
+        manager.deleteComic(comicId = 12)
+        advanceUntilIdle()
+
+        assertEquals(ChapterDownloadStatus.CANCELLED, manager.progress.value.getValue(61).status)
+        assertTrue(downloads.isEmpty())
+        assertTrue(store.getDownloadedChapters(comicId = 12).isEmpty())
         manager.release()
     }
 
