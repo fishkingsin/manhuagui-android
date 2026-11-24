@@ -5,6 +5,42 @@ use source_api::{
     UpdateWindow,
 };
 
+#[uniffi::export(callback_interface)]
+pub trait AndroidDownloadObserver: Send + Sync {
+    fn on_progress(&self, comic_id: i64, chapter_id: i64, downloaded_pages: u32, total_pages: u32);
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DownloadedChapter {
+    pub comic_id: i64,
+    pub comic_title: String,
+    pub chapter_id: i64,
+    pub chapter_title: String,
+    pub group_name: String,
+    pub order: f64,
+    pub page_count: i32,
+    pub chapter_dir: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct LocalChapterNavigation {
+    pub prev_chapter_id: Option<i64>,
+    pub next_chapter_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AndroidExportFormat {
+    Cbz,
+    Pdf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ExportedChapterFile {
+    pub chapter_id: i64,
+    pub file_name: String,
+    pub file_path: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum AndroidUpdateWindow {
     Days7,

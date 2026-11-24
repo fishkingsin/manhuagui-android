@@ -12,9 +12,14 @@ uniffi = { version = "=0.28.3", features = ["tokio"] }
 source-api = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
 source-manhuagui = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
 library = { git = "https://github.com/fishkingsin/manhuagui-downloader.git", tag = "v0.1.1-core" }
+eyre = "0.6"
+parking_lot = "0.12"
+serde_json = "1.0"
+walkdir = "2.5"
+async-trait = "0.1"
+tokio = { version = "1.43.0", features = ["sync", "time", "rt"] }
 
 [dev-dependencies]
-async-trait = "0.1"
 chrono = "0.4.39"
 tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread"] }
 
