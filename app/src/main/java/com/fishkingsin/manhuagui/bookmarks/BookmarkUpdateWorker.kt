@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.fishkingsin.manhuagui.App
+import com.fishkingsin.manhuagui.settings.AppSettings
 import java.util.concurrent.TimeUnit
 
 class BookmarkUpdateWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
@@ -30,7 +31,7 @@ class BookmarkUpdateWorker(appContext: Context, params: WorkerParameters) : Coro
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
-            val interval = intervalHours.takeIf { it > 0 } ?: 6
+            val interval = intervalHours.takeIf { it > 0 } ?: AppSettings.DEFAULT_CHECK_INTERVAL_HOURS
             val request = PeriodicWorkRequestBuilder<BookmarkUpdateWorker>(
                 interval.toLong(),
                 TimeUnit.HOURS,

@@ -3,6 +3,7 @@ package com.fishkingsin.manhuagui
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import androidx.work.ExistingPeriodicWorkPolicy
 import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
@@ -28,6 +29,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import okio.Path.Companion.toOkioPath
 import uniffi.manhuagui_ffi.AndroidLibrary
 
@@ -53,7 +55,11 @@ class App : Application() {
             val intervalHours = runCatching {
                 container.settingsStore.getSettings().checkIntervalHours
             }.getOrDefault(AppSettings.DEFAULT_CHECK_INTERVAL_HOURS)
-            BookmarkUpdateWorker.schedulePeriodic(this@App, intervalHours)
+            BookmarkUpdateWorker.schedulePeriodic(
+                this@App,
+                intervalHours,
+                ExistingPeriodicWorkPolicy.UPDATE,
+            )
         }
     }
 }
@@ -92,9 +98,10 @@ class AppContainer(
             add(OkHttpNetworkFetcherFactory())
         }
         .diskCache {
+            val diskCacheSizeMb = runBlocking { settingsStore.getSettings().diskCacheSizeMb }
             DiskCache.Builder()
                 .directory(context.cacheDir.resolve("image_cache").toOkioPath())
-                .maxSizeBytes(512L * 1024 * 1024)
+                .maxSizeBytes(diskCacheSizeMb.toLong() * 1024 * 1024)
                 .build()
         }
         .memoryCache {
