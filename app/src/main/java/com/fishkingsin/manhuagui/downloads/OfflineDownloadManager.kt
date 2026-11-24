@@ -58,6 +58,7 @@ class OfflineDownloadManager(
     private val lock = Any()
     private val queue = MutableStateFlow<List<ChapterDownloadRequest>>(emptyList())
     private val active = MutableStateFlow<Set<Long>>(emptySet())
+    private val cancelledChapters = mutableSetOf<Long>()
     private val mutableProgress = MutableStateFlow<Map<Long, ChapterDownloadProgress>>(emptyMap())
     private var consumer: Job? = null
     private var queueStarted = false
@@ -75,6 +76,7 @@ class OfflineDownloadManager(
             val additions = requests.distinctBy { it.chapterId }.filterNot { it.chapterId in pending }
             if (additions.isEmpty()) return
 
+            cancelledChapters.removeAll(additions.mapTo(mutableSetOf()) { it.chapterId })
             queue.value = queue.value + additions
             mutableProgress.update { current ->
                 current + additions.associate { request ->
@@ -100,6 +102,7 @@ class OfflineDownloadManager(
             val pending = chapterId in active.value || queue.value.any { it.chapterId == chapterId }
             queue.value = queue.value.filterNot { it.chapterId == chapterId }
             if (pending) {
+                cancelledChapters += chapterId
                 mutableProgress.update { current ->
                     current[chapterId]?.let { current + (chapterId to it.copy(status = ChapterDownloadStatus.CANCELLED)) }
                         ?: current
@@ -134,6 +137,21 @@ class OfflineDownloadManager(
     }
 
     suspend fun deleteComic(comicId: Long) {
+        synchronized(lock) {
+            val queued = queue.value.filter { it.comicId == comicId }
+            val activeChapters = active.value.filter { mutableProgress.value[it]?.comicId == comicId }
+            val cancelled = queued.mapTo(mutableSetOf()) { it.chapterId } + activeChapters
+            queue.value = queue.value.filterNot { it.comicId == comicId }
+            cancelledChapters += cancelled
+            mutableProgress.update { current ->
+                cancelled.fold(current) { updated, chapterId ->
+                    updated[chapterId]?.let {
+                        updated + (chapterId to it.copy(status = ChapterDownloadStatus.CANCELLED))
+                    } ?: updated
+                }
+            }
+            activeChapters.forEach(::cancelInService)
+        }
         localStore.getDownloadedChapters(comicId).forEach { record ->
             service.deleteDownloadedChapter(comicId, record.chapterId, downloadRoot).getOrThrow()
             localStore.deleteDownloadedChapter(comicId, record.chapterId)
@@ -172,8 +190,18 @@ class OfflineDownloadManager(
     }
 
     private suspend fun process(request: ChapterDownloadRequest) {
-        updateProgress(request) { it.copy(status = ChapterDownloadStatus.DOWNLOADING) }
         try {
+            val cancelledBeforeStart = synchronized(lock) {
+                if (request.chapterId in cancelledChapters) {
+                    updateProgress(request) { it.copy(status = ChapterDownloadStatus.CANCELLED) }
+                    true
+                } else {
+                    updateProgress(request) { it.copy(status = ChapterDownloadStatus.DOWNLOADING) }
+                    false
+                }
+            }
+            if (cancelledBeforeStart) return
+
             val observer = object : AndroidDownloadObserver {
                 override fun onProgress(
                     comicId: Long,
@@ -201,6 +229,14 @@ class OfflineDownloadManager(
                 downloadRoot,
                 observer,
             ).getOrThrow()
+            val cancelledAfterDownload = synchronized(lock) {
+                request.chapterId in cancelledChapters
+            }
+            if (cancelledAfterDownload) {
+                service.deleteDownloadedChapter(request.comicId, request.chapterId, downloadRoot).getOrThrow()
+                updateProgress(request) { it.copy(status = ChapterDownloadStatus.CANCELLED) }
+                return
+            }
             localStore.upsertDownloadedChapter(downloaded.toRecord())
             updateProgress(request) { it.copy(status = ChapterDownloadStatus.COMPLETED) }
         } catch (cancelled: CancellationException) {
@@ -216,7 +252,10 @@ class OfflineDownloadManager(
                 }
             }
         } finally {
-            active.update { it - request.chapterId }
+            synchronized(lock) {
+                active.update { it - request.chapterId }
+                cancelledChapters -= request.chapterId
+            }
         }
     }
 
