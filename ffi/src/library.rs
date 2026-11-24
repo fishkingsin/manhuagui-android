@@ -449,13 +449,6 @@ impl AndroidLibrary {
         remove_directory(&comic_dir.join(format!(".下载中-{chapter_id}")))?;
 
         if comic_dir.is_dir() {
-            let has_other_active_download = self
-                .active_downloads
-                .lock()
-                .iter()
-                .any(|(active_chapter_id, active)| {
-                    active.comic_id == native_id && *active_chapter_id != chapter_id
-                });
             let mut has_chapter_metadata = false;
             let mut has_in_progress_download = false;
             for entry in walk_entries(&comic_dir) {
@@ -475,8 +468,14 @@ impl AndroidLibrary {
                     has_chapter_metadata = true;
                 }
             }
-            if !has_chapter_metadata && !has_in_progress_download && !has_other_active_download {
-                remove_directory(&comic_dir)?;
+            if !has_chapter_metadata && !has_in_progress_download {
+                let active_downloads = self.active_downloads.lock();
+                let has_other_active_download = active_downloads.iter().any(|(active_chapter_id, active)| {
+                    active.comic_id == native_id && *active_chapter_id != chapter_id
+                });
+                if !has_other_active_download {
+                    remove_directory(&comic_dir)?;
+                }
             }
         }
         Ok(())
