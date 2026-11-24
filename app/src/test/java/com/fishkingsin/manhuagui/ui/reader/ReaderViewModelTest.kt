@@ -341,10 +341,10 @@ class ReaderViewModelTest {
         nativeId = 42,
         chapterId = 7,
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
-        scope = scope.backgroundScope,
         localStore = localStore,
         chapterTitle = chapterTitle,
         clockMs = clockMs,
+        scope = scope.backgroundScope,
     )
 
     private fun imagePage(id: Int) = ImagePage(

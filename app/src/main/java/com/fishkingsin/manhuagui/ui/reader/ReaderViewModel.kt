@@ -37,10 +37,10 @@ class ReaderViewModel(
     private val nativeId: Long,
     private val chapterId: Long,
     private val service: LibraryService,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     private val localStore: LocalStore = InMemoryLocalStore(),
     private val chapterTitle: String = "",
     private val clockMs: () -> Long = System::currentTimeMillis,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val mutableState = MutableStateFlow(ReaderUiState(nativeId, chapterId))
     val state = mutableState.asStateFlow()

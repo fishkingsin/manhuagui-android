@@ -7,6 +7,7 @@ import com.fishkingsin.manhuagui.data.BookmarkRecord
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.data.ReadingProgress
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,9 +29,9 @@ data class DetailUiState(
 class DetailViewModel(
     private val nativeId: Long,
     private val service: LibraryService,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     private val localStore: LocalStore = InMemoryLocalStore(),
     private val clockMs: () -> Long = System::currentTimeMillis,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val mutableState = MutableStateFlow(DetailUiState())
     val state = mutableState.asStateFlow()
@@ -85,24 +86,31 @@ class DetailViewModel(
     fun toggleBookmark() {
         val current = mutableState.value
         val comic = current.comic ?: return
+        val nextBookmarked = !current.isBookmarked
+        mutableState.value = current.copy(isBookmarked = nextBookmarked)
         scope.launch {
-            if (current.isBookmarked) {
-                localStore.deleteBookmark(nativeId)
-                mutableState.value = mutableState.value.copy(isBookmarked = false)
-            } else {
-                val record = BookmarkRecord(
-                    comicId = nativeId,
-                    title = comic.title,
-                    coverUrl = comic.coverUrl,
-                    lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
-                    latestChapterTitle = current.chapters.firstOrNull()?.chapterTitle.orEmpty(),
-                    newChapterCount = 0,
-                    hasUnreadUpdate = false,
-                    lastCheckedEpochMs = clockMs(),
-                    updatedAtEpochMs = clockMs(),
-                )
-                localStore.upsertBookmark(record)
-                mutableState.value = mutableState.value.copy(isBookmarked = true)
+            try {
+                if (nextBookmarked) {
+                    localStore.upsertBookmark(
+                        BookmarkRecord(
+                            comicId = nativeId,
+                            title = comic.title,
+                            coverUrl = comic.coverUrl,
+                            lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
+                            latestChapterTitle = current.chapters.firstOrNull()?.chapterTitle.orEmpty(),
+                            newChapterCount = 0,
+                            hasUnreadUpdate = false,
+                            lastCheckedEpochMs = clockMs(),
+                            updatedAtEpochMs = clockMs(),
+                        ),
+                    )
+                } else {
+                    localStore.deleteBookmark(nativeId)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                mutableState.value = mutableState.value.copy(isBookmarked = !nextBookmarked)
             }
         }
     }

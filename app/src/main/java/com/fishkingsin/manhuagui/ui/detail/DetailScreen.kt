@@ -55,7 +55,7 @@ fun DetailScreen(
 ) {
     val scope = rememberCoroutineScope()
     val viewModel = remember(nativeId, service, scope, localStore) {
-        DetailViewModel(nativeId, service, scope, localStore)
+        DetailViewModel(nativeId = nativeId, service = service, localStore = localStore, scope = scope)
     }
     val uiState by viewModel.state.collectAsState()
     val comic = uiState.comic

@@ -55,6 +55,43 @@ class DetailViewModelTest {
     }
 
     @Test
+    fun quickBookmarkTogglesLeaveTheSecondTapAsTheFinalIntent() = runTest {
+        val store = InMemoryLocalStore()
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.toggleBookmark()
+        viewModel.toggleBookmark()
+        runCurrent()
+
+        assertFalse(viewModel.state.value.isBookmarked)
+        assertNull(store.getBookmark(41))
+    }
+
+    @Test
+    fun failedBookmarkWriteRevertsOptimisticState() = runTest {
+        val store = object : LocalStore by InMemoryLocalStore() {
+            override suspend fun upsertBookmark(record: BookmarkRecord) {
+                throw IllegalStateException("write failed")
+            }
+        }
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.toggleBookmark()
+
+        assertTrue(viewModel.state.value.isBookmarked)
+        runCurrent()
+
+        assertFalse(viewModel.state.value.isBookmarked)
+        assertNull(store.getBookmark(41))
+    }
+
+    @Test
     fun loadSyncsAnExistingBookmarkAndClearsItsUnreadBadge() = runTest {
         val comic = comic(41, listOf(chapter(5, "Group", 2, 1.0)))
         val store = InMemoryLocalStore()
@@ -218,9 +255,9 @@ class DetailViewModelTest {
     ) = DetailViewModel(
         nativeId = nativeId,
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
-        scope = scope.backgroundScope,
         localStore = localStore,
         clockMs = clockMs,
+        scope = scope.backgroundScope,
     )
 
     private fun chapter(id: Long, groupName: String, groupSize: Long, order: Double) = ChapterItem(

@@ -88,8 +88,8 @@ fun ReaderScreen(
             nativeId = nativeId,
             chapterId = chapterId,
             service = service,
-            scope = scope,
             localStore = localStore,
+            scope = scope,
         )
     }
     val uiState by viewModel.state.collectAsState()
