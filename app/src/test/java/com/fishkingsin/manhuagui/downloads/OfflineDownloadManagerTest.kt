@@ -64,7 +64,7 @@ class OfflineDownloadManagerTest {
             downloadedChapter(comicId, chapterId)
         }
         val manager = manager(library, store)
-        val reconciliation = backgroundScope.launch { manager.reconcileOnStartup() }
+        val reconciliation = launch { manager.reconcileOnStartup() }
         runCurrent()
         assertTrue(scanStarted.isCompleted)
 
@@ -75,7 +75,7 @@ class OfflineDownloadManagerTest {
         finishScan.complete(Unit)
         advanceUntilIdle()
 
-        assertTrue(downloadStarted.isCompleted)
+        assertTrue("progress: ${manager.progress.value}", downloadStarted.isCompleted)
         assertEquals(ChapterDownloadStatus.COMPLETED, manager.progress.value.getValue(34).status)
         reconciliation.join()
         manager.release()

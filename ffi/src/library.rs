@@ -430,8 +430,14 @@ impl AndroidLibrary {
 
         if comic_dir.is_dir() {
             let mut has_chapter_metadata = false;
+            let mut has_in_progress_download = false;
             for entry in walk_entries(&comic_dir) {
                 let entry = entry.map_err(parse_error)?;
+                if entry.file_type().is_dir()
+                    && entry.file_name().to_string_lossy().starts_with(".下载中-")
+                {
+                    has_in_progress_download = true;
+                }
                 if entry.file_type().is_file()
                     && entry.file_name().to_string_lossy() == "章节元数据.json"
                     && entry
@@ -440,10 +446,9 @@ impl AndroidLibrary {
                         .is_some_and(|parent| parent != comic_dir.as_path())
                 {
                     has_chapter_metadata = true;
-                    break;
                 }
             }
-            if !has_chapter_metadata {
+            if !has_chapter_metadata && !has_in_progress_download {
                 remove_directory(&comic_dir)?;
             }
         }
@@ -696,13 +701,13 @@ impl AndroidLibrary {
                     return Err(parse_error(error));
                 }
             };
+        let mut state_rx = task.state_sender.subscribe();
+        let mut delete_rx = task.delete_sender.subscribe();
         registration.replace_sender(task.delete_sender.clone(), temp_download_dir.clone())?;
         #[cfg(test)]
         if let Some(hook) = self.handoff_hook.lock().take() {
             hook(self);
         }
-        let mut state_rx = task.state_sender.subscribe();
-        let mut delete_rx = task.delete_sender.subscribe();
 
         let result = loop {
             match *state_rx.borrow() {
@@ -736,17 +741,26 @@ impl AndroidLibrary {
         match result {
             Ok(()) => {
                 let page_count = task.total_img_count.load(Ordering::Relaxed) as i32;
-                registration.finish();
-                Ok(DownloadedChapter {
-                    comic_id: native_id,
-                    comic_title: task.comic.title.clone(),
-                    chapter_id,
-                    chapter_title: task.chapter_info.chapter_title.clone(),
-                    group_name: task.chapter_info.group_name.clone(),
-                    order: task.chapter_info.order,
-                    page_count,
-                    chapter_dir: chapter_download_dir.to_string_lossy().into_owned(),
-                })
+                if page_count == 0 {
+                    remove_directory(&temp_download_dir)?;
+                    remove_directory(&chapter_download_dir)?;
+                    registration.finish();
+                    Err(AndroidError::Network {
+                        detail: "Chapter has no pages".to_owned(),
+                    })
+                } else {
+                    registration.finish();
+                    Ok(DownloadedChapter {
+                        comic_id: native_id,
+                        comic_title: task.comic.title.clone(),
+                        chapter_id,
+                        chapter_title: task.chapter_info.chapter_title.clone(),
+                        group_name: task.chapter_info.group_name.clone(),
+                        order: task.chapter_info.order,
+                        page_count,
+                        chapter_dir: chapter_download_dir.to_string_lossy().into_owned(),
+                    })
+                }
             }
             Err(error) => {
                 let _ = remove_directory(&temp_download_dir);

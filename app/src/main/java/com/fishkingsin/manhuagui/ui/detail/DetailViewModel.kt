@@ -158,7 +158,14 @@ class DetailViewModel(
             val progressIndex = chapters.indexOfFirst { it.chapterId == progress.chapterId }
             if (progressIndex < 0) emptyList() else chapters.take(progressIndex)
         }
-        offlineDownloadManager.enqueue(unread.map { ChapterDownloadRequest(nativeId, it.chapterId) })
+        scope.launch {
+            val downloadedIds = localStore.getDownloadedChapters(nativeId)
+                .mapTo(mutableSetOf()) { it.chapterId }
+            offlineDownloadManager.enqueue(
+                unread.filterNot { it.chapterId in downloadedIds }
+                    .map { ChapterDownloadRequest(nativeId, it.chapterId) },
+            )
+        }
     }
 
     fun cancelDownload(chapterId: Long) {

@@ -59,6 +59,7 @@ class OfflineDownloadManager(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + io)
     private val lock = Any()
     private val storeMutex = Mutex()
+    private val reconcileMutex = Mutex()
     private val queue = MutableStateFlow<List<ChapterDownloadRequest>>(emptyList())
     private val active = MutableStateFlow<Set<Long>>(emptySet())
     private val cancelledChapters = mutableSetOf<Long>()
@@ -69,7 +70,9 @@ class OfflineDownloadManager(
     val progress: StateFlow<Map<Long, ChapterDownloadProgress>> = mutableProgress.asStateFlow()
 
     suspend fun reconcileOnStartup() {
-        val records = service.scanDownloadedChapters(downloadRoot).getOrThrow().map { it.toRecord() }
+        val records = reconcileMutex.withLock {
+            service.scanDownloadedChapters(downloadRoot).getOrThrow().map { it.toRecord() }
+        }
         localStore.reconcileDownloadedChapters(records)
     }
 
@@ -231,12 +234,14 @@ class OfflineDownloadManager(
                     }
                 }
             }
-            val downloaded = service.downloadChapter(
-                request.comicId,
-                request.chapterId,
-                downloadRoot,
-                observer,
-            ).getOrThrow()
+            val downloaded = reconcileMutex.withLock {
+                service.downloadChapter(
+                    request.comicId,
+                    request.chapterId,
+                    downloadRoot,
+                    observer,
+                ).getOrThrow()
+            }
             storeMutex.withLock {
                 val cancelledAfterDownload = synchronized(lock) {
                     request.chapterId in cancelledChapters
