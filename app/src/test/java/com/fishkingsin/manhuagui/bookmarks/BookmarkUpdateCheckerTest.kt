@@ -4,9 +4,13 @@ import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.BookmarkRecord
 import com.fishkingsin.manhuagui.data.DEFAULT_SOURCE_ID
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -57,6 +61,113 @@ class BookmarkUpdateCheckerTest {
             events,
         )
         assertEquals(emptyList<UpdatedBookmark>(), updates)
+    }
+
+    @Test
+    fun concurrentCheckAllCallsWaitUntilTheActiveCheckFinishes() = runTest {
+        val store = InMemoryLocalStore()
+        listOf(1L, 2L).forEach { store.upsertBookmark(bookmark(it)) }
+        val pendingComics = mapOf(
+            1L to CompletableDeferred<ComicDetails>(),
+            2L to CompletableDeferred<ComicDetails>(),
+        )
+        val events = mutableListOf<String>()
+        val library = FakeLibrary().apply {
+            onGetComic = { comicId ->
+                events += "comic:$comicId"
+                pendingComics.getValue(comicId).await()
+            }
+        }
+        val checker = checker(
+            store = store,
+            library = library,
+            scope = this,
+            delayMs = { events += "delay:$it" },
+        )
+
+        backgroundScope.launch { checker.checkAll() }
+        runCurrent()
+        assertEquals(listOf("comic:1"), events)
+
+        backgroundScope.launch { checker.checkAll() }
+        runCurrent()
+        assertEquals(listOf("comic:1"), events)
+
+        pendingComics.getValue(1).complete(comic(1, emptyList()))
+        runCurrent()
+        assertEquals(listOf("comic:1", "delay:1000", "comic:2"), events)
+
+        pendingComics.getValue(2).complete(comic(2, emptyList()))
+        runCurrent()
+        assertEquals(
+            listOf("comic:1", "delay:1000", "comic:2", "comic:1", "delay:1000", "comic:2"),
+            events,
+        )
+    }
+
+    @Test
+    fun checkAllDoesNotReinsertBookmarkDeletedDuringFetch() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(bookmark(comicId = 51))
+        val pendingComic = CompletableDeferred<ComicDetails>()
+        val library = FakeLibrary().apply {
+            onGetComic = { pendingComic.await() }
+        }
+        val checker = checker(store, library, this)
+        val result = async { checker.checkAll() }
+        runCurrent()
+
+        store.deleteBookmark(51)
+        pendingComic.complete(comic(51, listOf(chapter(1, "Group", 2, 1.0))))
+        runCurrent()
+
+        assertEquals(emptyList<UpdatedBookmark>(), result.await())
+        assertNull(store.getBookmark(51))
+    }
+
+    @Test
+    fun checkAllKeepsClearedUnreadBadgeWhenNoNewChaptersArrive() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(
+            bookmark(
+                comicId = 52,
+                lastKnownChapterIds = setOf(1),
+                latestChapterTitle = "Saved chapter",
+                newChapterCount = 3,
+                hasUnreadUpdate = true,
+            ),
+        )
+        val pendingComic = CompletableDeferred<ComicDetails>()
+        val library = FakeLibrary().apply {
+            onGetComic = { pendingComic.await() }
+        }
+        val checker = checker(store, library, this)
+        val result = async { checker.checkAll() }
+        runCurrent()
+
+        store.upsertBookmark(
+            bookmark(
+                comicId = 52,
+                lastKnownChapterIds = setOf(1),
+                latestChapterTitle = "Read chapter",
+                hasUnreadUpdate = false,
+                updatedAtEpochMs = 50,
+            ),
+        )
+        pendingComic.complete(comic(52, listOf(chapter(1, "Group", 2, 1.0))))
+        runCurrent()
+
+        assertEquals(emptyList<UpdatedBookmark>(), result.await())
+        assertEquals(
+            bookmark(
+                comicId = 52,
+                lastKnownChapterIds = setOf(1),
+                latestChapterTitle = "Chapter 1",
+                lastCheckedEpochMs = 123,
+                updatedAtEpochMs = 50,
+            ),
+            store.getBookmark(52),
+        )
     }
 
     @Test
