@@ -128,23 +128,21 @@ class BookmarkUpdateCheckerTest {
 
     @Test
     fun concurrentChecksApplyNewChaptersOnceFromTheLatestBookmark() = runTest {
-        val base = InMemoryLocalStore()
-        base.upsertBookmark(bookmark(comicId = 53, lastKnownChapterIds = setOf(1)))
-        val bothWritesArrived = CompletableDeferred<Unit>()
-        var writeCount = 0
-        val store = object : LocalStore by base {
-            override suspend fun upsertBookmark(record: BookmarkRecord) {
-                writeCount += 1
-                if (writeCount == 2) bothWritesArrived.complete(Unit)
-                bothWritesArrived.await()
-                base.upsertBookmark(record)
-            }
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(bookmark(comicId = 53, lastKnownChapterIds = setOf(1)))
+        val bothFetchesArrived = CompletableDeferred<Unit>()
+        var fetchCount = 0
+        suspend fun awaitBothAndReturnComic(): ComicDetails {
+            fetchCount += 1
+            if (fetchCount == 2) bothFetchesArrived.complete(Unit)
+            bothFetchesArrived.await()
+            return comic(53, listOf(chapter(1, "Group", 2, 1.0), chapter(2, "Group", 2, 2.0)))
         }
         val library1 = FakeLibrary().apply {
-            onGetComic = { comic(53, listOf(chapter(1, "Group", 2, 1.0), chapter(2, "Group", 2, 2.0))) }
+            onGetComic = { awaitBothAndReturnComic() }
         }
         val library2 = FakeLibrary().apply {
-            onGetComic = { comic(53, listOf(chapter(1, "Group", 2, 1.0), chapter(2, "Group", 2, 2.0))) }
+            onGetComic = { awaitBothAndReturnComic() }
         }
         val testScope = this
         val first = async { checker(store, library1, testScope).checkAll() }
@@ -155,7 +153,7 @@ class BookmarkUpdateCheckerTest {
         val updates = listOf(first.await(), second.await()).flatten()
 
         assertEquals(listOf(UpdatedBookmark(53, "Comic 53", "Chapter 2", 1)), updates)
-        assertEquals(1, base.getBookmark(53)?.newChapterCount)
+        assertEquals(1, store.getBookmark(53)?.newChapterCount)
     }
 
     @Test
