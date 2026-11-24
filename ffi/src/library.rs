@@ -42,6 +42,8 @@ pub struct AndroidLibrary {
     chapter_sem: Arc<Semaphore>,
     img_sem: Arc<Semaphore>,
     byte_per_sec: Arc<AtomicU64>,
+    #[cfg(test)]
+    handoff_hook: Mutex<Option<Box<dyn FnOnce(&AndroidLibrary) + Send>>>,
 }
 
 impl AndroidLibrary {
@@ -55,6 +57,8 @@ impl AndroidLibrary {
             chapter_sem: resources.chapter_sem,
             img_sem: resources.img_sem,
             byte_per_sec: resources.byte_per_sec,
+            #[cfg(test)]
+            handoff_hook: Mutex::new(None),
         }
     }
 
@@ -322,6 +326,8 @@ impl AndroidLibrary {
             chapter_sem: resources.chapter_sem,
             img_sem: resources.img_sem,
             byte_per_sec: resources.byte_per_sec,
+            #[cfg(test)]
+            handoff_hook: Mutex::new(None),
         }
     }
 
@@ -691,6 +697,10 @@ impl AndroidLibrary {
                 }
             };
         registration.replace_sender(task.delete_sender.clone(), temp_download_dir.clone())?;
+        #[cfg(test)]
+        if let Some(hook) = self.handoff_hook.lock().take() {
+            hook(self);
+        }
         let mut state_rx = task.state_sender.subscribe();
         let mut delete_rx = task.delete_sender.subscribe();
 
@@ -744,5 +754,109 @@ impl AndroidLibrary {
                 Err(error)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use source_api::{BrowseResult, ChapterPages, SearchResult, SourceError};
+
+    struct PendingPageSource {
+        comic: Comic,
+    }
+
+    #[async_trait]
+    impl Source for PendingPageSource {
+        fn id(&self) -> &'static str {
+            "manhuagui"
+        }
+
+        fn today(&self) -> NaiveDate {
+            NaiveDate::from_ymd_opt(2026, 11, 24).unwrap()
+        }
+
+        async fn search(&self, _keyword: &str, _page: i64) -> Result<SearchResult, SourceError> {
+            unreachable!()
+        }
+
+        async fn browse_latest(
+            &self,
+            _window: UpdateWindow,
+            _page: i64,
+            _genre: Option<&str>,
+        ) -> Result<BrowseResult, SourceError> {
+            unreachable!()
+        }
+
+        async fn get_comic(&self, _native_id: i64) -> Result<Comic, SourceError> {
+            Ok(self.comic.clone())
+        }
+
+        async fn get_chapter_pages(
+            &self,
+            _native_id: i64,
+            _chapter_id: i64,
+        ) -> Result<ChapterPages, SourceError> {
+            std::future::pending().await
+        }
+    }
+
+    struct NoopAndroidObserver;
+
+    impl AndroidDownloadObserver for NoopAndroidObserver {
+        fn on_progress(
+            &self,
+            _comic_id: i64,
+            _chapter_id: i64,
+            _downloaded_pages: u32,
+            _total_pages: u32,
+        ) {
+        }
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_task_sender_handoff_is_observed() {
+        let mut comic = Comic {
+            id: 901,
+            title: "Fixture Comic".to_owned(),
+            ..Comic::default()
+        };
+        comic.groups.insert(
+            "Group".to_owned(),
+            vec![ChapterInfo {
+                chapter_id: 902,
+                chapter_title: "Chapter 2".to_owned(),
+                comic_id: 901,
+                comic_title: comic.title.clone(),
+                group_name: "Group".to_owned(),
+                group_size: 1,
+                ..ChapterInfo::default()
+            }],
+        );
+        let inner = Library::new();
+        inner.register_source(Arc::new(PendingPageSource { comic }));
+        let library = AndroidLibrary::with_library(inner);
+        *library.handoff_hook.lock() = Some(Box::new(|library| library.cancel_download(902)));
+        let root = std::env::temp_dir().join(format!("manhuagui-handoff-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            library.download_chapter(
+                901,
+                902,
+                root.to_string_lossy().into_owned(),
+                Box::new(NoopAndroidObserver),
+            ),
+        )
+        .await;
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            matches!(result, Ok(Err(AndroidError::Cancelled { .. }))),
+            "download did not observe cancellation: {result:?}"
+        );
     }
 }

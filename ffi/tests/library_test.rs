@@ -909,6 +909,53 @@ async fn delete_downloaded_chapter_removes_chapter_and_empty_comic_directory() {
 }
 
 #[tokio::test]
+async fn delete_downloaded_chapter_preserves_comic_directory_with_active_download() {
+    let root = TestDir::new();
+    let source = MockSource::new();
+    let mut comic = source.fixtures.comic.clone();
+    seed_downloaded_chapters(&mut comic, root.path(), &[902]);
+    let comic_root = root.path().join("901");
+    let in_progress = comic_root.join(".下载中-903");
+    fs::create_dir_all(&in_progress).unwrap();
+    fs::write(in_progress.join("partial.jpg"), [1, 2, 3]).unwrap();
+    let library = adapter(source);
+
+    library
+        .delete_downloaded_chapter(901, 902, root.path().to_string_lossy().into_owned())
+        .await
+        .unwrap();
+
+    assert!(!comic_root.join("902").exists());
+    assert!(comic_root.is_dir());
+    assert!(in_progress.is_dir());
+    assert!(in_progress.join("partial.jpg").is_file());
+}
+
+#[tokio::test]
+async fn download_chapter_rejects_empty_chapters_and_removes_download_directories() {
+    let root = TestDir::new();
+    let mut source = MockSource::new();
+    source.fixtures.pages.pages.clear();
+    let library = adapter(source);
+
+    let result = library
+        .download_chapter(
+            901,
+            902,
+            root.path().to_string_lossy().into_owned(),
+            Box::new(ProgressObserver::default()),
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(AndroidError::Network { detail }) if detail == "Chapter has no pages"
+    ));
+    assert!(!root.path().join("901").join(".下载中-902").exists());
+    assert!(!root.path().join("901").join("902").exists());
+}
+
+#[tokio::test]
 async fn cancel_download_stops_in_flight_work_and_removes_temporary_directory() {
     let root = TestDir::new();
     let mut server = ImageServer::start(true).await;

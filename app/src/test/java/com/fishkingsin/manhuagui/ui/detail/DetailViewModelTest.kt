@@ -413,6 +413,37 @@ class DetailViewModelTest {
     }
 
     @Test
+    fun downloadUnreadChaptersSkipsAlreadyDownloadedChapters() = runTest {
+        val chapters = listOf(
+            chapter(1, "Group", 4, 1.0),
+            chapter(2, "Group", 4, 2.0),
+            chapter(3, "Group", 4, 3.0),
+            chapter(4, "Group", 4, 4.0),
+        )
+        val store = InMemoryLocalStore().apply {
+            saveReadingProgress(
+                ReadingProgress(
+                    comicId = 41,
+                    chapterId = 2,
+                    chapterTitle = "Chapter 2",
+                    pageIndex = 0,
+                    updatedAtEpochMs = 10,
+                ),
+            )
+            upsertDownloadedChapter(downloadedRecord(4))
+        }
+        val library = FakeLibrary().apply { onGetComic = { comic(41, chapters) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.downloadUnreadChapters()
+        runCurrent()
+
+        assertEquals(listOf(3L), library.downloadedChapterIds)
+    }
+
+    @Test
     fun downloadUnreadChaptersQueuesEveryChapterWhenProgressIsAbsent() = runTest {
         val chapters = listOf(
             chapter(1, "Group", 4, 1.0),

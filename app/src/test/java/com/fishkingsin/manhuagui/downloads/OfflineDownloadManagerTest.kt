@@ -5,12 +5,14 @@ import com.fishkingsin.manhuagui.data.DownloadedChapterRecord
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +44,40 @@ class OfflineDownloadManagerTest {
         assertEquals(2, indexed.pageCount)
         assertEquals("/offline/12/34", indexed.chapterDir)
         assertTrue(indexed.downloadedAtEpochMs >= startedAt)
+        manager.release()
+    }
+
+    @Test
+    fun startupReconciliationDoesNotRaceWithDownloads() = runTest {
+        val store = InMemoryLocalStore()
+        val library = DownloadsTestLibrary()
+        val scanStarted = CompletableDeferred<Unit>()
+        val finishScan = CompletableDeferred<Unit>()
+        val downloadStarted = CompletableDeferred<Unit>()
+        library.onScan = {
+            scanStarted.complete(Unit)
+            finishScan.await()
+            emptyList()
+        }
+        library.onDownload = { comicId, chapterId, _, _ ->
+            downloadStarted.complete(Unit)
+            downloadedChapter(comicId, chapterId)
+        }
+        val manager = manager(library, store)
+        val reconciliation = backgroundScope.launch { manager.reconcileOnStartup() }
+        runCurrent()
+        assertTrue(scanStarted.isCompleted)
+
+        manager.enqueue(listOf(ChapterDownloadRequest(comicId = 12, chapterId = 34)))
+        runCurrent()
+
+        assertFalse(downloadStarted.isCompleted)
+        finishScan.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(downloadStarted.isCompleted)
+        assertEquals(ChapterDownloadStatus.COMPLETED, manager.progress.value.getValue(34).status)
+        reconciliation.join()
         manager.release()
     }
 
