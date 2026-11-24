@@ -39,6 +39,7 @@ fun LatestScreen(
     service: LibraryService,
     imageLoader: ImageLoader,
     onSearch: () -> Unit,
+    onBookmarks: () -> Unit,
     onComic: (Long) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -68,7 +69,10 @@ fun LatestScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(text = "Latest", color = contentColor, fontSize = 26.sp)
-            EInkButton(label = "Search", onClick = onSearch)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EInkButton(label = "Bookmarks", onClick = onBookmarks)
+                EInkButton(label = "Search", onClick = onSearch)
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),

@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,9 +32,15 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.ReadingProgress
 import uniffi.manhuagui_ffi.ChapterItem
 import uniffi.manhuagui_ffi.ComicDetails
 
@@ -44,14 +51,25 @@ fun DetailScreen(
     imageLoader: ImageLoader,
     onBack: () -> Unit,
     onChapter: (Long) -> Unit,
+    localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, service, scope) { DetailViewModel(nativeId, service, scope) }
+    val viewModel = remember(nativeId, service, scope, localStore) {
+        DetailViewModel(nativeId = nativeId, service = service, localStore = localStore, scope = scope)
+    }
     val uiState by viewModel.state.collectAsState()
     val comic = uiState.comic
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
+    val lifecycleOwner = LocalLifecycleOwner.current
 
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshProgress()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(viewModel) {
         val current = viewModel.state.value
         if (current.comic == null && !current.loading && current.error == null) {
@@ -69,9 +87,13 @@ fun DetailScreen(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Start,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             EInkButton(label = "Back", onClick = onBack)
+            EInkButton(
+                label = if (uiState.isBookmarked) "Bookmarked" else "Bookmark",
+                onClick = viewModel::toggleBookmark,
+            )
         }
         when {
             uiState.loading -> Message(Modifier.weight(1f), "Loading…")
@@ -88,6 +110,7 @@ fun DetailScreen(
             comic != null -> DetailContent(
                 comic = comic,
                 chapters = uiState.chapters,
+                readingProgress = uiState.readingProgress,
                 imageLoader = imageLoader,
                 onChapter = onChapter,
                 modifier = Modifier.weight(1f),
@@ -101,6 +124,7 @@ fun DetailScreen(
 private fun DetailContent(
     comic: ComicDetails,
     chapters: List<ChapterItem>,
+    readingProgress: ReadingProgress?,
     imageLoader: ImageLoader,
     onChapter: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -136,6 +160,15 @@ private fun DetailContent(
                 if (comic.intro.isNotBlank()) {
                     Text(text = comic.intro, color = contentColor)
                 }
+            }
+        }
+        readingProgress?.let { progress ->
+            item(key = "continue-reading") {
+                EInkButton(
+                    label = "Continue: ${progress.chapterTitle} (p.${progress.pageIndex + 1})",
+                    onClick = { onChapter(progress.chapterId) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         item(key = "chapters-heading") {
@@ -182,11 +215,11 @@ private fun ChapterRow(chapter: ChapterItem, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EInkButton(label: String, onClick: () -> Unit) {
+private fun EInkButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
     Box(
-        modifier = Modifier
+        modifier = modifier
             .height(48.dp)
             .background(backgroundColor)
             .border(1.dp, contentColor, RectangleShape)

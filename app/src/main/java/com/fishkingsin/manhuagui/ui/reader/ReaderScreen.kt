@@ -59,10 +59,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Size as CoilSize
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.PageImages
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.min
@@ -76,14 +80,22 @@ fun ReaderScreen(
     imageLoader: ImageLoader,
     onBack: () -> Unit,
     onOpenChapter: (Long) -> Unit,
+    localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, chapterId, service) {
-        ReaderViewModel(nativeId, chapterId, service, scope)
+    val viewModel = remember(nativeId, chapterId, service, localStore, scope) {
+        ReaderViewModel(
+            nativeId = nativeId,
+            chapterId = chapterId,
+            service = service,
+            localStore = localStore,
+            scope = scope,
+        )
     }
     val uiState by viewModel.state.collectAsState()
     var readerState by remember(viewModel) { mutableStateOf(ReaderState()) }
     val context = LocalContext.current
+    val prefetcher = remember(context, imageLoader) { PagePrefetcher.create(context, imageLoader) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val view = LocalView.current
     val focusRequester = remember { FocusRequester() }
@@ -122,6 +134,9 @@ fun ReaderScreen(
     LaunchedEffect(viewModel) {
         viewModel.load()
     }
+    LaunchedEffect(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection) {
+        prefetcher.onPageTurn(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection)
+    }
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -137,11 +152,14 @@ fun ReaderScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                Log.i(
-                    "ReaderKey",
-                    "action=${event.nativeKeyEvent.action} keyCode=${event.nativeKeyEvent.keyCode}",
+                Log.i("ReaderKey", "action=${event.nativeKeyEvent.action} keyCode=${event.nativeKeyEvent.keyCode}")
+                val keyResult = handleReaderKey(
+                    event.nativeKeyEvent.keyCode,
+                    event.nativeKeyEvent.action,
+                    rtl = true,
                 )
-                false
+                if (keyResult.pageDelta != null) viewModel.turnPage(keyResult.pageDelta)
+                keyResult.consumed
             },
     ) {
         when {
@@ -166,7 +184,7 @@ fun ReaderScreen(
                 Text("Loading…", color = contentColor)
             }
             else -> {
-                val pagerState = rememberPagerState(pageCount = { uiState.pages.size })
+                val pagerState = rememberPagerState(initialPage = uiState.pageIndex) { uiState.pages.size }
 
                 LaunchedEffect(pagerState, viewModel) {
                     snapshotFlow { pagerState.currentPage }
@@ -240,7 +258,7 @@ private fun ReaderPage(
             .size(CoilSize.ORIGINAL)
             .apply(PageImages.modelFor(page))
             .apply {
-                if (retryCount > 0) memoryCacheKey("${page.url}#retry=$retryCount")
+                if (retryCount > 0) memoryCachePolicy(CachePolicy.WRITE_ONLY)
             }
             .build()
     }
@@ -332,6 +350,7 @@ private fun ReaderPage(
                 Text("Couldn't load page.", color = contentColor)
                 ReaderButton("Retry page") {
                     imageFailed = false
+                    imageLoader.memoryCache?.remove(MemoryCache.Key(page.url))
                     retryCount += 1
                 }
             }

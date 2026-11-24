@@ -45,4 +45,8 @@ The APK is at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Verify on a device
 
-Use the [device checklist](docs/device-checklist.md) to verify browse, search, reader, and e-ink behavior on BOOX Leaf 5 or Leaf 5C hardware.
+Use the [device checklist](docs/device-checklist.md) to verify browse, search, reader, bookmarks, update notifications, and e-ink behavior on BOOX Leaf 5 or Leaf 5C hardware.
+
+## Phase 2 checks
+
+Use the device checklist to verify bookmark creation and removal, manual and six-hour background checks, and update notifications. It also covers the Android 13 notification permission prompt, routing to Bookmarks, and the battery-optimization settings link. Real BOOX Leaf 5 and Leaf 5C verification is pending.

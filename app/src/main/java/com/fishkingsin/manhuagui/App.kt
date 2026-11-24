@@ -7,7 +7,13 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateChecker
+import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateNotification
+import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateWorker
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.AppDatabase
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.RoomLocalStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import okio.Path.Companion.toOkioPath
@@ -20,6 +26,8 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(applicationContext)
+        BookmarkUpdateNotification.ensureChannel(this)
+        BookmarkUpdateWorker.schedulePeriodic(this)
     }
 }
 
@@ -29,6 +37,8 @@ class AppContainer(
 ) {
     val library = AndroidLibrary()
     val libraryService = LibraryService(library, io)
+    val localStore: LocalStore = RoomLocalStore(AppDatabase.build(context), io)
+    val bookmarkUpdateChecker = BookmarkUpdateChecker(localStore, libraryService)
     val imageLoader = ImageLoader.Builder(context)
         .components {
             add(OkHttpNetworkFetcherFactory())

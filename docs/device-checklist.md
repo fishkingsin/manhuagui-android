@@ -72,6 +72,17 @@ Record the memory values and check for sustained growth as you read.
 2. Press Home or switch to another app to pause Manhuagui.
 3. Wait past the normal display timeout. Confirm that the paused reader no longer keeps the screen on.
 
-## Phase 2 scope
+## Verify bookmarks and update checks
 
-The battery-optimization prompt, WorkManager background checks, Room bookmarks, and physical key-to-page bindings belong to Phase 2. Real BOOX Leaf 5 and Leaf 5C hardware verification is pending.
+1. Open a comic, add a bookmark, and return to Latest.
+2. Open **Bookmarks**. Confirm that the comic title, cover, latest chapter, and any update badge appear.
+3. Tap **Check updates**. Confirm that the button disables while the check runs and that its result appears when the check ends.
+4. Remove the bookmark. Confirm that it disappears from the list.
+5. Open **Bookmarks** with no saved comics. Confirm that **No bookmarks yet.** appears.
+6. On Android 13 or later, confirm that Manhuagui requests notification permission when it starts. Allow notifications, then check for updates after a bookmarked comic gains chapters.
+7. Tap an update notification. Confirm that Manhuagui opens the Bookmarks screen.
+8. With a bookmarked comic that gains chapters, leave network access available and allow the six-hour background check to run. Confirm that Manhuagui posts an update notification.
+9. If the battery hint appears, tap **Battery settings**. Confirm that Android opens the battery-optimization settings page.
+10. Confirm that screens use the device's monochrome theme, buttons have 48dp tap targets, and route changes have no transition animation.
+
+Real BOOX Leaf 5 and Leaf 5C verification is pending.
