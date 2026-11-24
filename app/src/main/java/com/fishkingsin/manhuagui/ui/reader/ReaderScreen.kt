@@ -253,6 +253,7 @@ fun ReaderScreen(
                             page = uiState.pages[pageIndex],
                             imageLoader = imageLoader,
                             readerState = readerState,
+                            rtl = uiState.readingDirection == ReadingDirection.RTL,
                             onReaderStateChange = { readerState = it },
                             onTurnPage = viewModel::turnPage,
                             onToggleChrome = viewModel::toggleChrome,
@@ -280,6 +281,7 @@ private fun ReaderPage(
     page: ImagePage,
     imageLoader: ImageLoader,
     readerState: ReaderState,
+    rtl: Boolean,
     onReaderStateChange: (ReaderState) -> Unit,
     onTurnPage: (Int) -> Unit,
     onToggleChrome: () -> Unit,
@@ -345,13 +347,13 @@ private fun ReaderPage(
                     } while (event.changes.any { it.pressed })
                 }
             }
-            .pointerInput(page.url) {
+            .pointerInput(page.url, rtl) {
                 detectTapGestures(
                     onDoubleTap = {
                         updateReaderState(currentReaderState.toggleDoubleTapZoom())
                     },
                     onTap = { point ->
-                        when (tapZoneAction(point.x, size.width.toFloat())) {
+                        when (tapZoneAction(point.x, size.width.toFloat(), rtl)) {
                             TapAction.PrevPage -> turnPage(-1)
                             TapAction.NextPage -> turnPage(1)
                             TapAction.ToggleChrome -> toggleChrome()

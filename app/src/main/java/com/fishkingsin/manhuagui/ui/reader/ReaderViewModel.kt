@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.manhuagui_ffi.ImagePage
 
 sealed interface ReaderEffect {
@@ -76,11 +77,13 @@ class ReaderViewModel(
                 prefetchCount = settings.prefetchCount,
             )
             val localPages = downloadedChapter?.let { chapter ->
-                File(chapter.chapterDir).listFiles()
-                    ?.filter { it.isFile && it.name.endsWith(".jpg") }
-                    ?.sortedBy { it.name }
-                    ?.map { file -> ImagePage(url = "file://${file.absolutePath}", headers = emptyMap()) }
-                    .orEmpty()
+                withContext(Dispatchers.IO) {
+                    File(chapter.chapterDir).listFiles()
+                        ?.filter { it.isFile && it.name.endsWith(".jpg") }
+                        ?.sortedBy { it.name }
+                        ?.map { file -> ImagePage(url = "file://${file.absolutePath}", headers = emptyMap()) }
+                        .orEmpty()
+                }
             }.orEmpty()
 
             if (localPages.isNotEmpty()) {
@@ -93,7 +96,7 @@ class ReaderViewModel(
                 )
                 return@launch
             }
-            if (downloadedChapter == null && settings.offlineOnlyMode) {
+            if (localPages.isEmpty() && settings.offlineOnlyMode) {
                 mutableState.value = mutableState.value.copy(
                     loading = false,
                     awaitingOfflineStreamConfirmation = true,

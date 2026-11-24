@@ -15,6 +15,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -274,7 +275,7 @@ class ReaderViewModelTest {
             )
 
             viewModel.load()
-            runCurrent()
+            viewModel.state.first { !it.loading }
 
             assertEquals(
                 listOf(
@@ -312,7 +313,7 @@ class ReaderViewModelTest {
             val viewModel = viewModel(library, this, localStore = store)
 
             viewModel.load()
-            runCurrent()
+            viewModel.state.first { !it.loading }
 
             assertEquals(listOf(page), viewModel.state.value.pages)
             assertFalse(viewModel.state.value.isOfflineChapter)
@@ -338,7 +339,7 @@ class ReaderViewModelTest {
             )
 
             viewModel.load()
-            runCurrent()
+            viewModel.state.first { !it.loading }
 
             assertTrue(viewModel.state.value.awaitingOfflineStreamConfirmation)
             assertEquals(emptyList<Pair<Long, Long>>(), library.chapterQueries)
@@ -393,7 +394,7 @@ class ReaderViewModelTest {
             val viewModel = viewModel(library, this, localStore = store)
 
             viewModel.load()
-            runCurrent()
+            viewModel.state.first { !it.loading }
 
             assertEquals(1, viewModel.state.value.pages.size)
             assertTrue(viewModel.state.value.isOfflineChapter)
