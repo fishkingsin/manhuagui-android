@@ -8,11 +8,13 @@ import coil3.size.Size
 import com.fishkingsin.manhuagui.core.PageImages
 import uniffi.manhuagui_ffi.ImagePage
 
+const val DEFAULT_AHEAD_COUNT = 3
+
 fun prefetchIndices(
     currentPage: Int,
     totalPages: Int,
     directionDelta: Int = 1,
-    count: Int = 3,
+    count: Int = DEFAULT_AHEAD_COUNT,
 ): List<Int> {
     if (totalPages <= 0 || count <= 0) return emptyList()
 
@@ -41,11 +43,17 @@ class PagePrefetcher(
     private val enqueuePage: (ImagePage) -> Unit,
     private val evictUrl: (String) -> Unit,
 ) {
-    fun onPageTurn(pages: List<ImagePage>, currentPage: Int, directionDelta: Int = 1) {
+    fun onPageTurn(
+        pages: List<ImagePage>,
+        currentPage: Int,
+        directionDelta: Int = 1,
+        aheadCount: Int = DEFAULT_AHEAD_COUNT,
+    ) {
         if (pages.isEmpty() || currentPage !in pages.indices) return
 
-        for (index in prefetchIndices(currentPage, pages.size, directionDelta, 3)) {
-            enqueuePage(pages[index])
+        for (index in prefetchIndices(currentPage, pages.size, directionDelta, aheadCount)) {
+            val page = pages[index]
+            if (!page.url.startsWith("file:")) enqueuePage(page)
         }
         for (index in evictIndices(currentPage, pages.size, 2)) {
             evictUrl(pages[index].url)
