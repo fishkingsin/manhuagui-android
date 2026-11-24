@@ -59,6 +59,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.size.Size as CoilSize
 import com.fishkingsin.manhuagui.core.LibraryService
@@ -247,7 +249,7 @@ private fun ReaderPage(
             .size(CoilSize.ORIGINAL)
             .apply(PageImages.modelFor(page))
             .apply {
-                if (retryCount > 0) memoryCacheKey("${page.url}#retry=$retryCount")
+                if (retryCount > 0) memoryCachePolicy(CachePolicy.WRITE_ONLY)
             }
             .build()
     }
@@ -339,6 +341,7 @@ private fun ReaderPage(
                 Text("Couldn't load page.", color = contentColor)
                 ReaderButton("Retry page") {
                     imageFailed = false
+                    imageLoader.memoryCache?.remove(MemoryCache.Key(page.url))
                     retryCount += 1
                 }
             }

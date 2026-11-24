@@ -1,5 +1,6 @@
 package com.fishkingsin.manhuagui.ui.reader
 
+import coil3.memory.MemoryCache
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import uniffi.manhuagui_ffi.ImagePage
@@ -42,6 +43,48 @@ class PagePrefetcherTest {
     }
 
     @Test
+    fun evictsBeforeEnqueueingPrefetchedPages() {
+        val pages = (0..7).map(::imagePage)
+        val actions = mutableListOf<String>()
+        val prefetcher = PagePrefetcher(
+            enqueuePage = { actions += "enqueue:${it.url}" },
+            evictUrl = { actions += "evict:$it" },
+        )
+
+        prefetcher.onPageTurn(pages, currentPage = 4, directionDelta = -1)
+
+        assertEquals(
+            listOf(
+                "evict:https://example.test/0.jpg",
+                "evict:https://example.test/1.jpg",
+                "evict:https://example.test/7.jpg",
+                "enqueue:https://example.test/3.jpg",
+                "enqueue:https://example.test/2.jpg",
+                "enqueue:https://example.test/1.jpg",
+            ),
+            actions,
+        )
+    }
+
+    @Test
+    fun evictsCanonicalAndRetryKeysButKeepsOtherPageKeys() {
+        val url = "https://example.test/1.jpg"
+        val otherUrl = "https://example.test/2.jpg"
+        val memoryCache = FakeMemoryCache(
+            setOf(
+                MemoryCache.Key(url),
+                MemoryCache.Key("$url#retry=1"),
+                MemoryCache.Key("$url#retry=2"),
+                MemoryCache.Key(otherUrl),
+            ),
+        )
+
+        evictUrlFromMemoryCache(memoryCache, url)
+
+        assertEquals(setOf(MemoryCache.Key(otherUrl)), memoryCache.keys)
+    }
+
+    @Test
     fun invalidCurrentPageDoesNotEnqueueOrEvict() {
         val enqueued = mutableListOf<ImagePage>()
         val evicted = mutableListOf<String>()
@@ -58,4 +101,29 @@ class PagePrefetcherTest {
         url = "https://example.test/$index.jpg",
         headers = mapOf("Referer" to "https://example.test/"),
     )
+
+    @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+    private class FakeMemoryCache(keys: Set<MemoryCache.Key>) : MemoryCache {
+        private val cachedKeys = keys.toMutableSet()
+
+        override val size: Long = 0
+        override var maxSize: Long = 0
+        override val initialMaxSize: Long = 0
+        override val keys: Set<MemoryCache.Key>
+            get() = cachedKeys.toSet()
+
+        override fun get(key: MemoryCache.Key): MemoryCache.Value? = null
+
+        override fun set(key: MemoryCache.Key, value: MemoryCache.Value) {
+            cachedKeys.add(key)
+        }
+
+        override fun remove(key: MemoryCache.Key): Boolean = cachedKeys.remove(key)
+
+        override fun trimToSize(size: Long) = Unit
+
+        override fun clear() {
+            cachedKeys.clear()
+        }
+    }
 }

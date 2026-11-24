@@ -28,6 +28,15 @@ fun evictIndices(currentPage: Int, totalPages: Int, keepRadius: Int = 2): List<I
     return (0 until totalPages).filter { kotlin.math.abs(it - currentPage) > keepRadius }
 }
 
+fun evictUrlFromMemoryCache(memoryCache: MemoryCache?, url: String) {
+    if (memoryCache == null) return
+
+    memoryCache.remove(MemoryCache.Key(url))
+    memoryCache.keys
+        .filter { it.key == url || it.key.startsWith("$url#retry=") }
+        .forEach(memoryCache::remove)
+}
+
 class PagePrefetcher(
     private val enqueuePage: (ImagePage) -> Unit,
     private val evictUrl: (String) -> Unit,
@@ -35,11 +44,11 @@ class PagePrefetcher(
     fun onPageTurn(pages: List<ImagePage>, currentPage: Int, directionDelta: Int = 1) {
         if (pages.isEmpty() || currentPage !in pages.indices) return
 
-        for (index in prefetchIndices(currentPage, pages.size, directionDelta, 3)) {
-            enqueuePage(pages[index])
-        }
         for (index in evictIndices(currentPage, pages.size, 2)) {
             evictUrl(pages[index].url)
+        }
+        for (index in prefetchIndices(currentPage, pages.size, directionDelta, 3)) {
+            enqueuePage(pages[index])
         }
     }
 
@@ -55,7 +64,7 @@ class PagePrefetcher(
                 )
             },
             evictUrl = { url ->
-                imageLoader.memoryCache?.remove(MemoryCache.Key(url))
+                evictUrlFromMemoryCache(imageLoader.memoryCache, url)
             },
         )
     }
