@@ -37,7 +37,7 @@ use crate::types::{
 #[derive(uniffi::Object)]
 pub struct AndroidLibrary {
     inner: Library,
-    active_downloads: Mutex<HashMap<i64, watch::Sender<()>>>,
+    active_downloads: Mutex<HashMap<i64, ActiveDownload>>,
     img_client: Arc<RwLock<ClientWithMiddleware>>,
     chapter_sem: Arc<Semaphore>,
     img_sem: Arc<Semaphore>,
@@ -222,8 +222,14 @@ impl EventObserver for NoopObserver {
     fn on_event(&self, _event: &LibraryEvent) {}
 }
 
+struct ActiveDownload {
+    comic_id: i64,
+    delete_sender: watch::Sender<()>,
+}
+
 struct DownloadRegistration<'a> {
-    active_downloads: &'a Mutex<HashMap<i64, watch::Sender<()>>>,
+    active_downloads: &'a Mutex<HashMap<i64, ActiveDownload>>,
+    comic_id: i64,
     chapter_id: i64,
     delete_sender: watch::Sender<()>,
     reservation_receiver: watch::Receiver<()>,
@@ -233,7 +239,8 @@ struct DownloadRegistration<'a> {
 
 impl<'a> DownloadRegistration<'a> {
     fn new(
-        active_downloads: &'a Mutex<HashMap<i64, watch::Sender<()>>>,
+        active_downloads: &'a Mutex<HashMap<i64, ActiveDownload>>,
+        comic_id: i64,
         chapter_id: i64,
     ) -> Result<Self, AndroidError> {
         let (reservation_sender, reservation_receiver) = watch::channel(());
@@ -243,11 +250,18 @@ impl<'a> DownloadRegistration<'a> {
                 detail: format!("Chapter {chapter_id} download is already active"),
             });
         }
-        active_entries.insert(chapter_id, reservation_sender.clone());
+        active_entries.insert(
+            chapter_id,
+            ActiveDownload {
+                comic_id,
+                delete_sender: reservation_sender.clone(),
+            },
+        );
         drop(active_entries);
 
         Ok(Self {
             active_downloads,
+            comic_id,
             chapter_id,
             delete_sender: reservation_sender,
             reservation_receiver,
@@ -264,7 +278,7 @@ impl<'a> DownloadRegistration<'a> {
         let mut active_downloads = self.active_downloads.lock();
         let reservation_is_active = active_downloads
             .get(&self.chapter_id)
-            .is_some_and(|sender| sender.same_channel(&self.delete_sender));
+            .is_some_and(|active| active.delete_sender.same_channel(&self.delete_sender));
         if !reservation_is_active || self.reservation_receiver.has_changed().unwrap_or(true) {
             drop(active_downloads);
             delete_sender.send_replace(());
@@ -273,7 +287,13 @@ impl<'a> DownloadRegistration<'a> {
             });
         }
         self.temp_dir = Some(temp_dir);
-        active_downloads.insert(self.chapter_id, delete_sender.clone());
+        active_downloads.insert(
+            self.chapter_id,
+            ActiveDownload {
+                comic_id: self.comic_id,
+                delete_sender: delete_sender.clone(),
+            },
+        );
         self.delete_sender = delete_sender;
         Ok(())
     }
@@ -287,7 +307,7 @@ impl<'a> DownloadRegistration<'a> {
         let mut active_downloads = self.active_downloads.lock();
         if active_downloads
             .get(&self.chapter_id)
-            .is_some_and(|sender| sender.same_channel(&self.delete_sender))
+            .is_some_and(|active| active.delete_sender.same_channel(&self.delete_sender))
         {
             active_downloads.remove(&self.chapter_id);
         }
@@ -412,8 +432,8 @@ impl AndroidLibrary {
     }
 
     pub fn cancel_download(&self, chapter_id: i64) {
-        if let Some(delete_sender) = self.active_downloads.lock().remove(&chapter_id) {
-            delete_sender.send_replace(());
+        if let Some(active) = self.active_downloads.lock().remove(&chapter_id) {
+            active.delete_sender.send_replace(());
         }
     }
 
@@ -429,6 +449,13 @@ impl AndroidLibrary {
         remove_directory(&comic_dir.join(format!(".下载中-{chapter_id}")))?;
 
         if comic_dir.is_dir() {
+            let has_other_active_download = self
+                .active_downloads
+                .lock()
+                .iter()
+                .any(|(active_chapter_id, active)| {
+                    active.comic_id == native_id && *active_chapter_id != chapter_id
+                });
             let mut has_chapter_metadata = false;
             let mut has_in_progress_download = false;
             for entry in walk_entries(&comic_dir) {
@@ -448,7 +475,7 @@ impl AndroidLibrary {
                     has_chapter_metadata = true;
                 }
             }
-            if !has_chapter_metadata && !has_in_progress_download {
+            if !has_chapter_metadata && !has_in_progress_download && !has_other_active_download {
                 remove_directory(&comic_dir)?;
             }
         }
@@ -652,7 +679,7 @@ impl AndroidLibrary {
         download_root: String,
         observer: Arc<dyn AndroidDownloadObserver>,
     ) -> Result<DownloadedChapter, AndroidError> {
-        let mut registration = DownloadRegistration::new(&self.active_downloads, chapter_id)?;
+        let mut registration = DownloadRegistration::new(&self.active_downloads, native_id, chapter_id)?;
         let source = self.source()?;
         let mut comic = tokio::select! {
             comic = source.get_comic(native_id) => comic.map_err(AndroidError::from)?,
@@ -872,5 +899,39 @@ mod tests {
             matches!(result, Ok(Err(AndroidError::Cancelled { .. }))),
             "download did not observe cancellation: {result:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn delete_downloaded_chapter_keeps_comic_dir_when_another_chapter_is_active() {
+        let inner = Library::new();
+        let library = AndroidLibrary::with_library(inner);
+        let root = std::env::temp_dir().join(format!("manhuagui-delete-guard-{}", std::process::id()));
+        let comic_dir = root.join("901");
+        let chapter_dir = comic_dir.join("903");
+        std::fs::create_dir_all(&chapter_dir).unwrap();
+        std::fs::write(chapter_dir.join("章节元数据.json"), "{}").unwrap();
+
+        let (delete_sender, _delete_receiver) = watch::channel(());
+        library.active_downloads.lock().insert(
+            902,
+            ActiveDownload {
+                comic_id: 901,
+                delete_sender,
+            },
+        );
+
+        library
+            .delete_downloaded_chapter(901, 903, root.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+
+        assert!(
+            comic_dir.is_dir(),
+            "comic dir was removed while chapter 902 was active"
+        );
+        assert!(!chapter_dir.is_dir(), "chapter 903 dir should be removed");
+
+        library.cancel_download(902);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
