@@ -71,6 +71,39 @@ class DetailViewModelTest {
     }
 
     @Test
+    fun rapidTogglesPersistInTapOrder() = runTest {
+        val pendingUpsert = CompletableDeferred<Unit>()
+        val operations = mutableListOf<String>()
+        var savedBookmark: BookmarkRecord? = null
+        val store = object : LocalStore by InMemoryLocalStore() {
+            override suspend fun upsertBookmark(record: BookmarkRecord) {
+                pendingUpsert.await()
+                savedBookmark = record
+                operations += "upsert"
+            }
+
+            override suspend fun deleteBookmark(comicId: Long, sourceId: String) {
+                savedBookmark = null
+                operations += "delete"
+            }
+        }
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.toggleBookmark()
+        viewModel.toggleBookmark()
+        runCurrent()
+        pendingUpsert.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("upsert", "delete"), operations)
+        assertFalse(viewModel.state.value.isBookmarked)
+        assertNull(savedBookmark)
+    }
+
+    @Test
     fun failedBookmarkWriteRevertsOptimisticState() = runTest {
         val store = object : LocalStore by InMemoryLocalStore() {
             override suspend fun upsertBookmark(record: BookmarkRecord) {

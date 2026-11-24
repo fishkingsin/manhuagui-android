@@ -14,6 +14,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import uniffi.manhuagui_ffi.ChapterItem
 import uniffi.manhuagui_ffi.ComicDetails
 
@@ -34,6 +36,7 @@ class DetailViewModel(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val mutableState = MutableStateFlow(DetailUiState())
+    private val toggleMutex = Mutex()
     val state = mutableState.asStateFlow()
 
     fun load() {
@@ -89,28 +92,30 @@ class DetailViewModel(
         val nextBookmarked = !current.isBookmarked
         mutableState.value = current.copy(isBookmarked = nextBookmarked)
         scope.launch {
-            try {
-                if (nextBookmarked) {
-                    localStore.upsertBookmark(
-                        BookmarkRecord(
-                            comicId = nativeId,
-                            title = comic.title,
-                            coverUrl = comic.coverUrl,
-                            lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
-                            latestChapterTitle = current.chapters.firstOrNull()?.chapterTitle.orEmpty(),
-                            newChapterCount = 0,
-                            hasUnreadUpdate = false,
-                            lastCheckedEpochMs = clockMs(),
-                            updatedAtEpochMs = clockMs(),
-                        ),
-                    )
-                } else {
-                    localStore.deleteBookmark(nativeId)
+            toggleMutex.withLock {
+                try {
+                    if (nextBookmarked) {
+                        localStore.upsertBookmark(
+                            BookmarkRecord(
+                                comicId = nativeId,
+                                title = comic.title,
+                                coverUrl = comic.coverUrl,
+                                lastKnownChapterIds = comic.chapters.map { it.chapterId }.toSet(),
+                                latestChapterTitle = current.chapters.firstOrNull()?.chapterTitle.orEmpty(),
+                                newChapterCount = 0,
+                                hasUnreadUpdate = false,
+                                lastCheckedEpochMs = clockMs(),
+                                updatedAtEpochMs = clockMs(),
+                            ),
+                        )
+                    } else {
+                        localStore.deleteBookmark(nativeId)
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    mutableState.value = mutableState.value.copy(isBookmarked = !nextBookmarked)
                 }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Exception) {
-                mutableState.value = mutableState.value.copy(isBookmarked = !nextBookmarked)
             }
         }
     }
