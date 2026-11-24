@@ -10,6 +10,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil3.ImageLoader
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.ui.detail.DetailScreen
 import com.fishkingsin.manhuagui.ui.latest.LatestScreen
 import com.fishkingsin.manhuagui.ui.reader.ReaderScreen
@@ -19,6 +21,7 @@ import com.fishkingsin.manhuagui.ui.search.SearchScreen
 fun AppNav(
     libraryService: LibraryService,
     imageLoader: ImageLoader,
+    localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val navController = rememberNavController()
     NavHost(
@@ -54,6 +57,7 @@ fun AppNav(
                 nativeId = nativeId,
                 service = libraryService,
                 imageLoader = imageLoader,
+                localStore = localStore,
                 onBack = { navController.popBackStack() },
                 onChapter = { chapterId ->
                     navController.navigate("reader/$nativeId/$chapterId")
@@ -75,6 +79,7 @@ fun AppNav(
                 chapterId = chapterId,
                 service = libraryService,
                 imageLoader = imageLoader,
+                localStore = localStore,
                 onBack = { navController.popBackStack() },
                 onOpenChapter = { nextChapterId ->
                     navController.navigate("reader/$nativeId/$nextChapterId") {

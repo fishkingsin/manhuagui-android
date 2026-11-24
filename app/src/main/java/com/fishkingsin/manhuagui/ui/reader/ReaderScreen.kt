@@ -65,6 +65,8 @@ import coil3.request.ImageRequest
 import coil3.size.Size as CoilSize
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.PageImages
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.min
@@ -78,10 +80,17 @@ fun ReaderScreen(
     imageLoader: ImageLoader,
     onBack: () -> Unit,
     onOpenChapter: (Long) -> Unit,
+    localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, chapterId, service) {
-        ReaderViewModel(nativeId, chapterId, service, scope)
+    val viewModel = remember(nativeId, chapterId, service, localStore, scope) {
+        ReaderViewModel(
+            nativeId = nativeId,
+            chapterId = chapterId,
+            service = service,
+            scope = scope,
+            localStore = localStore,
+        )
     }
     val uiState by viewModel.state.collectAsState()
     var readerState by remember(viewModel) { mutableStateOf(ReaderState()) }

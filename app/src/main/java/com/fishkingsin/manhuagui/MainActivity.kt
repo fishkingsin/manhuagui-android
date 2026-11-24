@@ -15,6 +15,7 @@ class MainActivity : ComponentActivity() {
                 AppNav(
                     libraryService = appContainer.libraryService,
                     imageLoader = appContainer.imageLoader,
+                    localStore = appContainer.localStore,
                 )
             }
         }

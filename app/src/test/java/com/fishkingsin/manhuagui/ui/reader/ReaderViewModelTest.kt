@@ -2,6 +2,10 @@ package com.fishkingsin.manhuagui.ui.reader
 
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.BookmarkRecord
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.ReadingProgress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -27,6 +31,129 @@ import uniffi.manhuagui_ffi.SearchPage
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderViewModelTest {
+    @Test
+    fun loadResumesTheSavedPageInTheSameChapter() = runTest {
+        val store = InMemoryLocalStore()
+        store.saveReadingProgress(
+            ReadingProgress(
+                comicId = 42,
+                chapterId = 7,
+                chapterTitle = "Old title",
+                pageIndex = 2,
+                updatedAtEpochMs = 10,
+            ),
+        )
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store, chapterTitle = "Chapter seven", clockMs = { 20 })
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals(2, viewModel.state.value.pageIndex)
+        assertEquals(
+            ReadingProgress(comicId = 42, chapterId = 7, chapterTitle = "Chapter seven", pageIndex = 2, updatedAtEpochMs = 20),
+            store.getReadingProgress(42),
+        )
+    }
+
+    @Test
+    fun loadClampsSavedPageToTheLastAvailablePage() = runTest {
+        val store = InMemoryLocalStore()
+        store.saveReadingProgress(
+            ReadingProgress(comicId = 42, chapterId = 7, chapterTitle = "Chapter 7", pageIndex = 99, updatedAtEpochMs = 10),
+        )
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals(2, viewModel.state.value.pageIndex)
+    }
+
+    @Test
+    fun loadStartsAtFirstPageWhenSavedProgressIsForAnotherChapter() = runTest {
+        val store = InMemoryLocalStore()
+        store.saveReadingProgress(
+            ReadingProgress(comicId = 42, chapterId = 8, chapterTitle = "Chapter 8", pageIndex = 2, updatedAtEpochMs = 10),
+        )
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals(0, viewModel.state.value.pageIndex)
+    }
+
+    @Test
+    fun turningPagePersistsTheNewProgress() = runTest {
+        val store = InMemoryLocalStore()
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store, clockMs = { 30 })
+
+        viewModel.load()
+        runCurrent()
+        viewModel.turnPage(1)
+        runCurrent()
+
+        assertEquals(1, store.getReadingProgress(42)?.pageIndex)
+        assertEquals("Chapter 7", store.getReadingProgress(42)?.chapterTitle)
+        assertEquals(30L, store.getReadingProgress(42)?.updatedAtEpochMs)
+    }
+
+    @Test
+    fun pagerPageChangePersistsTheNewProgress() = runTest {
+        val store = InMemoryLocalStore()
+        val library = FakeLibrary().apply {
+            onGetChapterPages = { _, _ -> ChapterPagesResult((1..3).map(::imagePage), null, null) }
+        }
+        val viewModel = viewModel(library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        viewModel.onPageChanged(2)
+        runCurrent()
+
+        assertEquals(2, store.getReadingProgress(42)?.pageIndex)
+    }
+
+    @Test
+    fun loadingChapterClearsAnUnreadBookmarkBadge() = runTest {
+        for ((hasUnreadUpdate, newChapterCount) in listOf(true to 0, false to 3)) {
+            val store = InMemoryLocalStore()
+            store.upsertBookmark(
+                BookmarkRecord(
+                    comicId = 42,
+                    title = "Comic 42",
+                    coverUrl = "cover.jpg",
+                    lastKnownChapterIds = setOf(7),
+                    latestChapterTitle = "Chapter 7",
+                    newChapterCount = newChapterCount,
+                    hasUnreadUpdate = hasUnreadUpdate,
+                ),
+            )
+            val library = FakeLibrary().apply {
+                onGetChapterPages = { _, _ -> ChapterPagesResult(listOf(imagePage(1)), null, null) }
+            }
+            val viewModel = viewModel(library, this, localStore = store)
+
+            viewModel.load()
+            runCurrent()
+
+            assertEquals(false, store.getBookmark(42)?.hasUnreadUpdate)
+            assertEquals(0, store.getBookmark(42)?.newChapterCount)
+        }
+    }
+
     @Test
     fun samePageNotificationPreservesTheLastTurnDirection() = runTest {
         val library = FakeLibrary().apply {
@@ -204,11 +331,20 @@ class ReaderViewModelTest {
         )
     }
 
-    private fun viewModel(library: FakeLibrary, scope: TestScope) = ReaderViewModel(
+    private fun viewModel(
+        library: FakeLibrary,
+        scope: TestScope,
+        localStore: LocalStore = InMemoryLocalStore(),
+        chapterTitle: String = "",
+        clockMs: () -> Long = { 1_234L },
+    ) = ReaderViewModel(
         nativeId = 42,
         chapterId = 7,
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
         scope = scope.backgroundScope,
+        localStore = localStore,
+        chapterTitle = chapterTitle,
+        clockMs = clockMs,
     )
 
     private fun imagePage(id: Int) = ImagePage(

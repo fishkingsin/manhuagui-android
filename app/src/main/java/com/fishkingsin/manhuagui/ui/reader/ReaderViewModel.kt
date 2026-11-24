@@ -3,6 +3,9 @@ package com.fishkingsin.manhuagui.ui.reader
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.toAppError
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.ReadingProgress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +38,9 @@ class ReaderViewModel(
     private val chapterId: Long,
     private val service: LibraryService,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val localStore: LocalStore = InMemoryLocalStore(),
+    private val chapterTitle: String = "",
+    private val clockMs: () -> Long = System::currentTimeMillis,
 ) {
     private val mutableState = MutableStateFlow(ReaderUiState(nativeId, chapterId))
     val state = mutableState.asStateFlow()
@@ -56,10 +62,21 @@ class ReaderViewModel(
                             error = AppError.ParseFailed("Chapter has no pages"),
                         )
                     } else {
+                        val savedProgress = localStore.getReadingProgress(nativeId)
+                        val initialPageIndex = if (savedProgress?.chapterId == chapterId) {
+                            savedProgress.pageIndex.coerceIn(0, result.pages.lastIndex)
+                        } else {
+                            0
+                        }
+                        localStore.saveReadingProgress(progressAt(initialPageIndex))
+                        val bookmark = localStore.getBookmark(nativeId)
+                        if (bookmark != null && (bookmark.hasUnreadUpdate || bookmark.newChapterCount > 0)) {
+                            localStore.upsertBookmark(bookmark.copy(hasUnreadUpdate = false, newChapterCount = 0))
+                        }
                         mutableState.value = mutableState.value.copy(
                             loading = false,
                             pages = result.pages,
-                            pageIndex = 0,
+                            pageIndex = initialPageIndex,
                             prevChapterId = result.prevChapterId,
                             nextChapterId = result.nextChapterId,
                             error = null,
@@ -86,9 +103,22 @@ class ReaderViewModel(
             if (newIndex != current.pageIndex) {
                 val direction = if (newIndex < current.pageIndex) -1 else 1
                 mutableState.value = current.copy(pageIndex = newIndex, lastTurnDirection = direction)
+                saveProgress(newIndex)
             }
         }
     }
+
+    private fun saveProgress(pageIndex: Int) {
+        scope.launch { localStore.saveReadingProgress(progressAt(pageIndex)) }
+    }
+
+    private fun progressAt(pageIndex: Int) = ReadingProgress(
+        comicId = nativeId,
+        chapterId = chapterId,
+        chapterTitle = chapterTitle.ifBlank { "Chapter $chapterId" },
+        pageIndex = pageIndex,
+        updatedAtEpochMs = clockMs(),
+    )
 
     fun toggleChrome() {
         mutableState.value = mutableState.value.copy(chromeVisible = !mutableState.value.chromeVisible)
@@ -103,6 +133,7 @@ class ReaderViewModel(
             target in 0..current.pages.lastIndex -> {
                 val direction = if (target < current.pageIndex || delta < 0) -1 else 1
                 mutableState.value = current.copy(pageIndex = target, lastTurnDirection = direction)
+                saveProgress(target)
             }
             target > current.pages.lastIndex -> current.nextChapterId?.let { chapter ->
                 mutableEffects.tryEmit(ReaderEffect.OpenChapter(chapter))

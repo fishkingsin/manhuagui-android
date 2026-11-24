@@ -2,6 +2,10 @@ package com.fishkingsin.manhuagui.ui.detail
 
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.BookmarkRecord
+import com.fishkingsin.manhuagui.data.InMemoryLocalStore
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.ReadingProgress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -24,6 +28,108 @@ import uniffi.manhuagui_ffi.SearchPage
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailViewModelTest {
+    @Test
+    fun toggleBookmarkSeedsKnownChaptersAndSecondToggleRemovesIt() = runTest {
+        val chapters = listOf(chapter(5, "Group", 2, 1.0), chapter(8, "Group", 2, 2.0))
+        val comic = comic(41, chapters)
+        val store = InMemoryLocalStore()
+        val library = FakeLibrary().apply { onGetComic = { comic } }
+        val viewModel = viewModel(41, library, this, localStore = store, clockMs = { 50 })
+
+        viewModel.load()
+        runCurrent()
+        viewModel.toggleBookmark()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isBookmarked)
+        assertEquals(setOf(5L, 8L), store.getBookmark(41)?.lastKnownChapterIds)
+        assertEquals("Chapter 8", store.getBookmark(41)?.latestChapterTitle)
+        assertEquals(50L, store.getBookmark(41)?.lastCheckedEpochMs)
+        assertEquals(50L, store.getBookmark(41)?.updatedAtEpochMs)
+
+        viewModel.toggleBookmark()
+        runCurrent()
+
+        assertFalse(viewModel.state.value.isBookmarked)
+        assertNull(store.getBookmark(41))
+    }
+
+    @Test
+    fun loadSyncsAnExistingBookmarkAndClearsItsUnreadBadge() = runTest {
+        val comic = comic(41, listOf(chapter(5, "Group", 2, 1.0)))
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(
+            BookmarkRecord(
+                comicId = 41,
+                title = "Old title",
+                coverUrl = "old.jpg",
+                lastKnownChapterIds = setOf(1),
+                latestChapterTitle = "Old chapter",
+                newChapterCount = 2,
+                hasUnreadUpdate = true,
+            ),
+        )
+        val library = FakeLibrary().apply { onGetComic = { comic } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isBookmarked)
+        assertFalse(store.getBookmark(41)?.hasUnreadUpdate ?: true)
+        assertEquals(0, store.getBookmark(41)?.newChapterCount)
+        assertEquals(comic.title, store.getBookmark(41)?.title)
+        assertEquals(comic.coverUrl, store.getBookmark(41)?.coverUrl)
+        assertEquals(setOf(5L), store.getBookmark(41)?.lastKnownChapterIds)
+        assertEquals("Chapter 5", store.getBookmark(41)?.latestChapterTitle)
+    }
+
+    @Test
+    fun loadSurfacesSavedReadingProgress() = runTest {
+        val progress = ReadingProgress(
+            comicId = 41,
+            chapterId = 5,
+            chapterTitle = "Chapter five",
+            pageIndex = 3,
+            updatedAtEpochMs = 20,
+        )
+        val store = InMemoryLocalStore()
+        store.saveReadingProgress(progress)
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+
+        assertEquals(progress, viewModel.state.value.readingProgress)
+    }
+
+    @Test
+    fun refreshProgressReadsUpdatesSavedAfterDetailLoaded() = runTest {
+        val store = InMemoryLocalStore()
+        val library = FakeLibrary().apply { onGetComic = { comic(41, emptyList()) } }
+        val viewModel = viewModel(41, library, this, localStore = store)
+
+        viewModel.load()
+        runCurrent()
+        val progress = ReadingProgress(comicId = 41, chapterId = 5, chapterTitle = "Chapter five", pageIndex = 3, updatedAtEpochMs = 20)
+        store.saveReadingProgress(progress)
+        store.upsertBookmark(
+            BookmarkRecord(
+                comicId = 41,
+                title = "Comic 41",
+                coverUrl = "cover.jpg",
+                lastKnownChapterIds = emptySet(),
+                latestChapterTitle = "",
+            ),
+        )
+        viewModel.refreshProgress()
+        runCurrent()
+
+        assertEquals(progress, viewModel.state.value.readingProgress)
+        assertTrue(viewModel.state.value.isBookmarked)
+    }
+
     @Test
     fun loadShowsLoadingThenComicWithDeterministicallySortedChapters() = runTest {
         val chapters = listOf(
@@ -103,10 +209,18 @@ class DetailViewModelTest {
         assertFalse(viewModel.state.value.loading)
     }
 
-    private fun viewModel(nativeId: Long, library: FakeLibrary, scope: TestScope) = DetailViewModel(
+    private fun viewModel(
+        nativeId: Long,
+        library: FakeLibrary,
+        scope: TestScope,
+        localStore: LocalStore = InMemoryLocalStore(),
+        clockMs: () -> Long = { 1_234L },
+    ) = DetailViewModel(
         nativeId = nativeId,
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
         scope = scope.backgroundScope,
+        localStore = localStore,
+        clockMs = clockMs,
     )
 
     private fun chapter(id: Long, groupName: String, groupSize: Long, order: Double) = ChapterItem(
