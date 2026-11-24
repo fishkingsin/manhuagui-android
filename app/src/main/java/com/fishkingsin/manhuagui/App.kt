@@ -8,6 +8,9 @@ import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.data.AppDatabase
+import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.data.RoomLocalStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import okio.Path.Companion.toOkioPath
@@ -29,6 +32,7 @@ class AppContainer(
 ) {
     val library = AndroidLibrary()
     val libraryService = LibraryService(library, io)
+    val localStore: LocalStore = RoomLocalStore(AppDatabase.build(context), io)
     val imageLoader = ImageLoader.Builder(context)
         .components {
             add(OkHttpNetworkFetcherFactory())
