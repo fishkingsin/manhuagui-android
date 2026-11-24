@@ -140,6 +140,22 @@ class OfflineDownloadManagerTest {
     }
 
     @Test
+    fun cancellingCompletedChapterKeepsItsCompletedProgressAndRecord() = runTest {
+        val store = InMemoryLocalStore()
+        val library = DownloadsTestLibrary()
+        val manager = manager(library, store)
+        manager.enqueue(listOf(ChapterDownloadRequest(comicId = 8, chapterId = 33)))
+        advanceUntilIdle()
+
+        manager.cancel(chapterId = 33)
+        runCurrent()
+
+        assertEquals(ChapterDownloadStatus.COMPLETED, manager.progress.value.getValue(33).status)
+        assertEquals(33L, store.getDownloadedChapter(8, 33)?.chapterId)
+        manager.release()
+    }
+
+    @Test
     fun cancelAllMarksActiveAndQueuedChaptersCancelledAndDrainsQueueOnce() = runTest {
         val store = InMemoryLocalStore()
         val library = DownloadsTestLibrary()

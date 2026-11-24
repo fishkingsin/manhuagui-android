@@ -97,10 +97,13 @@ class OfflineDownloadManager(
 
     fun cancel(chapterId: Long) {
         synchronized(lock) {
+            val pending = chapterId in active.value || queue.value.any { it.chapterId == chapterId }
             queue.value = queue.value.filterNot { it.chapterId == chapterId }
-            mutableProgress.update { current ->
-                current[chapterId]?.let { current + (chapterId to it.copy(status = ChapterDownloadStatus.CANCELLED)) }
-                    ?: current
+            if (pending) {
+                mutableProgress.update { current ->
+                    current[chapterId]?.let { current + (chapterId to it.copy(status = ChapterDownloadStatus.CANCELLED)) }
+                        ?: current
+                }
             }
         }
         cancelInService(chapterId)
