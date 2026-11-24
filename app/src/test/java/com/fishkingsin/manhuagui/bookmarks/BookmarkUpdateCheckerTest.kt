@@ -109,6 +109,37 @@ class BookmarkUpdateCheckerTest {
     }
 
     @Test
+    fun checkAllAddsNewChapterCountToStoredCountWhenUnreadFlagIsFalse() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertBookmark(
+            bookmark(
+                comicId = 31,
+                lastKnownChapterIds = setOf(1L),
+                newChapterCount = 4,
+                hasUnreadUpdate = false,
+            ),
+        )
+        val library = FakeLibrary().apply {
+            onGetComic = { comicId ->
+                comic(
+                    comicId,
+                    listOf(
+                        chapter(1, "Group", 2, 1.0),
+                        chapter(2, "Group", 2, 2.0),
+                    ),
+                )
+            }
+        }
+        val checker = checker(store, library, this)
+
+        val updates = checker.checkAll()
+
+        assertEquals(listOf(UpdatedBookmark(31, "Comic 31", "Chapter 2", 1)), updates)
+        assertEquals(5, store.getBookmark(31)?.newChapterCount)
+        assertEquals(true, store.getBookmark(31)?.hasUnreadUpdate)
+    }
+
+    @Test
     fun checkAllContinuesAfterComicFetchFailure() = runTest {
         val store = InMemoryLocalStore()
         store.upsertBookmark(bookmark(comicId = 10))
