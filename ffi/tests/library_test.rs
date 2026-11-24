@@ -944,6 +944,73 @@ async fn cancel_download_stops_in_flight_work_and_removes_temporary_directory() 
 }
 
 #[tokio::test]
+async fn duplicate_download_is_rejected_without_replacing_the_active_cancellation_sender() {
+    let root = TestDir::new();
+    let mut server = ImageServer::start(true).await;
+    let mut source = MockSource::new();
+    set_image_pages(&mut source, &server.url, 1);
+    let library = Arc::new(adapter(source));
+    let download_root = root.path().to_string_lossy().into_owned();
+    let mut first = {
+        let library = library.clone();
+        let download_root = download_root.clone();
+        tokio::spawn(async move {
+            library
+                .download_chapter(
+                    901,
+                    902,
+                    download_root,
+                    Box::new(ProgressObserver::default()),
+                )
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(2), server.wait_for_request())
+        .await
+        .unwrap();
+    let temporary_dir = root.path().join("901").join(".下载中-902");
+    assert!(temporary_dir.exists());
+
+    let mut second = {
+        let library = library.clone();
+        tokio::spawn(async move {
+            library
+                .download_chapter(
+                    901,
+                    902,
+                    download_root,
+                    Box::new(ProgressObserver::default()),
+                )
+                .await
+        })
+    };
+    let second_result_while_blocked =
+        tokio::time::timeout(Duration::from_secs(2), &mut second).await;
+    let second_was_rejected = matches!(
+        &second_result_while_blocked,
+        Ok(Ok(Err(AndroidError::Cancelled { detail })))
+            if detail == "Chapter 902 download is already active"
+    );
+
+    library.cancel_download(902);
+    let first_result_while_blocked = tokio::time::timeout(Duration::from_secs(2), &mut first).await;
+    server.unblock();
+    let second_result = match second_result_while_blocked {
+        Ok(result) => result.unwrap(),
+        Err(_) => second.await.unwrap(),
+    };
+    let first_result = match first_result_while_blocked {
+        Ok(result) => result.unwrap(),
+        Err(_) => first.await.unwrap(),
+    };
+
+    assert!(second_was_rejected);
+    assert!(matches!(second_result, Err(AndroidError::Cancelled { .. })));
+    assert!(matches!(first_result, Err(AndroidError::Cancelled { .. })));
+    assert!(!temporary_dir.exists());
+}
+
+#[tokio::test]
 async fn dropping_download_future_cancels_the_task_and_removes_temporary_files() {
     let root = TestDir::new();
     let mut server = ImageServer::start(true).await;
