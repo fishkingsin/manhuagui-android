@@ -46,45 +46,36 @@ class BookmarkUpdateChecker(
         bookmarks.forEachIndexed { index, bookmark ->
             if (index > 0) delayMs(jitterMs().coerceIn(1000L, 2000L))
             val comic = service.getComic(bookmark.comicId).getOrNull() ?: return@forEachIndexed
-            val current = localStore.getBookmark(bookmark.comicId, sourceId) ?: return@forEachIndexed
             val now = clockMs()
             val currentIds = comic.chapters.map { it.chapterId }.toSet()
-            val newIds = currentIds - current.lastKnownChapterIds
-            val newestTitle = comic.chapters.sortedWith(
-                compareByDescending<ChapterItem> { it.groupSize }
-                    .thenBy { it.groupName }
-                    .thenByDescending { it.order },
-            ).firstOrNull()?.chapterTitle ?: current.latestChapterTitle
+            var newIds = emptySet<Long>()
+            val updatedBookmark = localStore.updateBookmarkIfPresent(bookmark.comicId, sourceId) { current ->
+                newIds = currentIds - current.lastKnownChapterIds
+                val newestTitle = comic.chapters.sortedWith(
+                    compareByDescending<ChapterItem> { it.groupSize }
+                        .thenBy { it.groupName }
+                        .thenByDescending { it.order },
+                ).firstOrNull()?.chapterTitle ?: current.latestChapterTitle
+                val totalNewCount = current.newChapterCount + newIds.size
+
+                current.copy(
+                    title = comic.title,
+                    coverUrl = comic.coverUrl,
+                    lastKnownChapterIds = currentIds,
+                    latestChapterTitle = newestTitle,
+                    newChapterCount = totalNewCount,
+                    hasUnreadUpdate = current.hasUnreadUpdate || newIds.isNotEmpty(),
+                    lastCheckedEpochMs = now,
+                    updatedAtEpochMs = if (newIds.isNotEmpty()) now else current.updatedAtEpochMs,
+                )
+            } ?: return@forEachIndexed
 
             if (newIds.isNotEmpty()) {
-                val totalNewCount = current.newChapterCount + newIds.size
-                localStore.upsertBookmark(
-                    current.copy(
-                        title = comic.title,
-                        coverUrl = comic.coverUrl,
-                        lastKnownChapterIds = currentIds,
-                        latestChapterTitle = newestTitle,
-                        newChapterCount = totalNewCount,
-                        hasUnreadUpdate = true,
-                        lastCheckedEpochMs = now,
-                        updatedAtEpochMs = now,
-                    ),
-                )
                 updated += UpdatedBookmark(
-                    comicId = current.comicId,
-                    title = comic.title,
-                    latestChapterTitle = newestTitle,
+                    comicId = updatedBookmark.comicId,
+                    title = updatedBookmark.title,
+                    latestChapterTitle = updatedBookmark.latestChapterTitle,
                     newChapterCount = newIds.size,
-                )
-            } else {
-                localStore.upsertBookmark(
-                    current.copy(
-                        title = comic.title,
-                        coverUrl = comic.coverUrl,
-                        lastKnownChapterIds = currentIds,
-                        latestChapterTitle = newestTitle,
-                        lastCheckedEpochMs = now,
-                    ),
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.fishkingsin.manhuagui.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +14,12 @@ interface LocalStore {
     suspend fun getBookmarks(sourceId: String = DEFAULT_SOURCE_ID): List<BookmarkRecord>
 
     suspend fun getBookmark(comicId: Long, sourceId: String = DEFAULT_SOURCE_ID): BookmarkRecord?
+
+    suspend fun updateBookmarkIfPresent(
+        comicId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+        transform: (BookmarkRecord) -> BookmarkRecord,
+    ): BookmarkRecord?
 
     suspend fun upsertBookmark(record: BookmarkRecord)
 
@@ -38,6 +45,20 @@ class RoomLocalStore(
 
     override suspend fun getBookmark(comicId: Long, sourceId: String): BookmarkRecord? = withContext(io) {
         database.bookmarkDao().get(comicId, sourceId)?.toRecord()
+    }
+
+    override suspend fun updateBookmarkIfPresent(
+        comicId: Long,
+        sourceId: String,
+        transform: (BookmarkRecord) -> BookmarkRecord,
+    ): BookmarkRecord? = withContext(io) {
+        database.withTransaction {
+            val current = database.bookmarkDao().get(comicId, sourceId)?.toRecord()
+                ?: return@withTransaction null
+            val updated = transform(current)
+            database.bookmarkDao().upsert(updated.toEntity())
+            updated
+        }
     }
 
     override suspend fun upsertBookmark(record: BookmarkRecord) = withContext(io) {

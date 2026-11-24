@@ -50,7 +50,7 @@ fun DetailScreen(
     service: LibraryService,
     imageLoader: ImageLoader,
     onBack: () -> Unit,
-    onChapter: (Long) -> Unit,
+    onChapter: (Long, String) -> Unit,
     localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
@@ -126,7 +126,7 @@ private fun DetailContent(
     chapters: List<ChapterItem>,
     readingProgress: ReadingProgress?,
     imageLoader: ImageLoader,
-    onChapter: (Long) -> Unit,
+    onChapter: (Long, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val contentColor = MaterialTheme.colorScheme.onBackground
@@ -166,7 +166,7 @@ private fun DetailContent(
             item(key = "continue-reading") {
                 EInkButton(
                     label = "Continue: ${progress.chapterTitle} (p.${progress.pageIndex + 1})",
-                    onClick = { onChapter(progress.chapterId) },
+                    onClick = { onChapter(progress.chapterId, progress.chapterTitle) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -180,7 +180,9 @@ private fun DetailContent(
             }
         } else {
             items(chapters, key = { it.chapterId }) { chapter ->
-                ChapterRow(chapter = chapter, onClick = { onChapter(chapter.chapterId) })
+                ChapterRow(chapter = chapter) {
+                    onChapter(chapter.chapterId, chapter.chapterTitle)
+                }
             }
         }
     }

@@ -76,6 +76,7 @@ import uniffi.manhuagui_ffi.ImagePage
 fun ReaderScreen(
     nativeId: Long,
     chapterId: Long,
+    chapterTitle: String = "",
     service: LibraryService,
     imageLoader: ImageLoader,
     onBack: () -> Unit,
@@ -83,10 +84,11 @@ fun ReaderScreen(
     localStore: LocalStore = InMemoryLocalStore(),
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, chapterId, service, localStore, scope) {
+    val viewModel = remember(nativeId, chapterId, chapterTitle, service, localStore, scope) {
         ReaderViewModel(
             nativeId = nativeId,
             chapterId = chapterId,
+            chapterTitle = chapterTitle,
             service = service,
             localStore = localStore,
             scope = scope,
