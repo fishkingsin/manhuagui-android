@@ -14,7 +14,6 @@ import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.ui.bookmarks.BookmarksScreen
-import com.fishkingsin.manhuagui.ui.bookmarks.BookmarksViewModel
 import com.fishkingsin.manhuagui.ui.detail.DetailScreen
 import com.fishkingsin.manhuagui.ui.latest.LatestScreen
 import com.fishkingsin.manhuagui.ui.reader.ReaderScreen
@@ -58,7 +57,6 @@ fun AppNav(
                     }
                 },
                 onComic = { nativeId -> navController.navigate("comic/$nativeId") },
-                onCheckUpdates = BookmarksViewModel::checkUpdatesNow,
                 imageLoader = imageLoader,
             )
         }

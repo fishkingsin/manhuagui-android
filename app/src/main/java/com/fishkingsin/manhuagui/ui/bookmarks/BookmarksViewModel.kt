@@ -19,6 +19,7 @@ data class BookmarksUiState(
     val items: List<BookmarkRecord> = emptyList(),
     val checking: Boolean = false,
     val lastUpdatedCount: Int? = null,
+    val checkFailed: Boolean = false,
 )
 
 class BookmarksViewModel(
@@ -42,13 +43,13 @@ class BookmarksViewModel(
             try {
                 val updatedCount = checker.checkAll().size
                 mutableState.update {
-                    it.copy(checking = false, lastUpdatedCount = updatedCount)
+                    it.copy(checking = false, lastUpdatedCount = updatedCount, checkFailed = false)
                 }
             } catch (cancellation: CancellationException) {
                 mutableState.update { it.copy(checking = false) }
                 throw cancellation
             } catch (_: Exception) {
-                mutableState.update { it.copy(checking = false) }
+                mutableState.update { it.copy(checking = false, checkFailed = true) }
             }
         }
     }

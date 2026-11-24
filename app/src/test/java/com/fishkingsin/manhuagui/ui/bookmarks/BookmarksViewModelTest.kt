@@ -66,6 +66,7 @@ class BookmarksViewModelTest {
             runCurrent()
 
             assertFalse(viewModel.state.value.checking)
+            assertFalse(viewModel.state.value.checkFailed)
             assertEquals(1, viewModel.state.value.lastUpdatedCount)
             assertTrue(viewModel.state.value.items.single().hasUnreadUpdate)
             assertEquals(1, viewModel.state.value.items.single().newChapterCount)
@@ -99,6 +100,7 @@ class BookmarksViewModelTest {
             assertEquals(1, library.comicRequestCount)
             assertEquals(1, viewModel.state.value.lastUpdatedCount)
             assertFalse(viewModel.state.value.checking)
+            assertFalse(viewModel.state.value.checkFailed)
         } finally {
             viewModelScope.cancel()
         }
@@ -136,6 +138,7 @@ class BookmarksViewModelTest {
             viewModel.checkUpdatesNow()
             runCurrent()
             assertEquals(1, viewModel.state.value.lastUpdatedCount)
+            assertFalse(viewModel.state.value.checkFailed)
 
             store.failGetBookmarks = true
             viewModel.checkUpdatesNow()
@@ -143,6 +146,14 @@ class BookmarksViewModelTest {
 
             assertFalse(viewModel.state.value.checking)
             assertEquals(1, viewModel.state.value.lastUpdatedCount)
+            assertTrue(viewModel.state.value.checkFailed)
+
+            store.failGetBookmarks = false
+            viewModel.checkUpdatesNow()
+            runCurrent()
+
+            assertEquals(0, viewModel.state.value.lastUpdatedCount)
+            assertFalse(viewModel.state.value.checkFailed)
         } finally {
             viewModelScope.cancel()
         }

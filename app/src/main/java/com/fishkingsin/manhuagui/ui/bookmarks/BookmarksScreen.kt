@@ -24,9 +24,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +40,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.fishkingsin.manhuagui.bookmarks.BookmarkUpdateChecker
@@ -47,13 +54,27 @@ fun BookmarksScreen(
     checker: BookmarkUpdateChecker,
     onBack: () -> Unit,
     onComic: (Long) -> Unit,
-    onCheckUpdates: (BookmarksViewModel) -> Unit,
     imageLoader: ImageLoader,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val ignoringBattery = powerManager.isIgnoringBatteryOptimizations(context.packageName)
-    val viewModel = remember(localStore, checker) { BookmarksViewModel(localStore, checker) }
+    var ignoringBattery by remember {
+        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                ignoringBattery = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val scope = rememberCoroutineScope()
+    val viewModel = remember(localStore, checker, scope) {
+        BookmarksViewModel(localStore, checker, scope)
+    }
     val uiState by viewModel.state.collectAsState()
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
@@ -76,7 +97,7 @@ fun BookmarksScreen(
             EInkButton(
                 label = "Check updates",
                 enabled = !uiState.checking,
-                onClick = { onCheckUpdates(viewModel) },
+                onClick = viewModel::checkUpdatesNow,
             )
         }
         if (!ignoringBattery) {
@@ -103,6 +124,9 @@ fun BookmarksScreen(
         }
         if (uiState.checking) {
             Text(text = "Checking…", color = contentColor)
+        }
+        if (uiState.checkFailed) {
+            Text(text = "Couldn't check updates.", color = contentColor)
         }
         uiState.lastUpdatedCount?.let { count ->
             Text(text = "Updated $count manga.", color = contentColor)
