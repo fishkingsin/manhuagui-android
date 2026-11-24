@@ -28,6 +28,35 @@ interface LocalStore {
     suspend fun getReadingProgress(comicId: Long, sourceId: String = DEFAULT_SOURCE_ID): ReadingProgress?
 
     suspend fun saveReadingProgress(progress: ReadingProgress)
+
+    fun observeDownloadedChapters(
+        comicId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+    ): Flow<List<DownloadedChapterRecord>>
+
+    suspend fun getDownloadedChapters(
+        comicId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+    ): List<DownloadedChapterRecord>
+
+    suspend fun getDownloadedChapter(
+        comicId: Long,
+        chapterId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+    ): DownloadedChapterRecord?
+
+    suspend fun upsertDownloadedChapter(record: DownloadedChapterRecord)
+
+    suspend fun deleteDownloadedChapter(
+        comicId: Long,
+        chapterId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+    )
+
+    suspend fun reconcileDownloadedChapters(
+        records: List<DownloadedChapterRecord>,
+        sourceId: String = DEFAULT_SOURCE_ID,
+    )
 }
 
 class RoomLocalStore(
@@ -76,6 +105,49 @@ class RoomLocalStore(
     override suspend fun saveReadingProgress(progress: ReadingProgress) = withContext(io) {
         database.readingProgressDao().upsert(progress.toEntity())
     }
+
+    override fun observeDownloadedChapters(
+        comicId: Long,
+        sourceId: String,
+    ): Flow<List<DownloadedChapterRecord>> = database.downloadedChapterDao()
+        .observeForComic(comicId, sourceId)
+        .map { entities -> entities.map(DownloadedChapterEntity::toRecord) }
+        .flowOn(io)
+
+    override suspend fun getDownloadedChapters(
+        comicId: Long,
+        sourceId: String,
+    ): List<DownloadedChapterRecord> = withContext(io) {
+        database.downloadedChapterDao().getForComic(comicId, sourceId).map(DownloadedChapterEntity::toRecord)
+    }
+
+    override suspend fun getDownloadedChapter(
+        comicId: Long,
+        chapterId: Long,
+        sourceId: String,
+    ): DownloadedChapterRecord? = withContext(io) {
+        database.downloadedChapterDao().get(comicId, chapterId, sourceId)?.toRecord()
+    }
+
+    override suspend fun upsertDownloadedChapter(record: DownloadedChapterRecord) = withContext(io) {
+        database.downloadedChapterDao().upsert(record.toEntity())
+    }
+
+    override suspend fun deleteDownloadedChapter(comicId: Long, chapterId: Long, sourceId: String) = withContext(io) {
+        database.downloadedChapterDao().delete(comicId, chapterId, sourceId)
+    }
+
+    override suspend fun reconcileDownloadedChapters(
+        records: List<DownloadedChapterRecord>,
+        sourceId: String,
+    ) = withContext(io) {
+        database.withTransaction {
+            database.downloadedChapterDao().deleteAllForSource(sourceId)
+            database.downloadedChapterDao().upsertAll(
+                records.filter { it.sourceId == sourceId }.map(DownloadedChapterRecord::toEntity),
+            )
+        }
+    }
 }
 
 private fun BookmarkEntity.toRecord() = BookmarkRecord(
@@ -120,4 +192,30 @@ private fun ReadingProgress.toEntity() = ReadingProgressEntity(
     chapterTitle = chapterTitle,
     pageIndex = pageIndex,
     updatedAtEpochMs = updatedAtEpochMs,
+)
+
+private fun DownloadedChapterEntity.toRecord() = DownloadedChapterRecord(
+    sourceId = sourceId,
+    comicId = comicId,
+    comicTitle = comicTitle,
+    chapterId = chapterId,
+    chapterTitle = chapterTitle,
+    groupName = groupName,
+    order = order,
+    pageCount = pageCount,
+    chapterDir = chapterDir,
+    downloadedAtEpochMs = downloadedAtEpochMs,
+)
+
+private fun DownloadedChapterRecord.toEntity() = DownloadedChapterEntity(
+    sourceId = sourceId,
+    comicId = comicId,
+    comicTitle = comicTitle,
+    chapterId = chapterId,
+    chapterTitle = chapterTitle,
+    groupName = groupName,
+    order = order,
+    pageCount = pageCount,
+    chapterDir = chapterDir,
+    downloadedAtEpochMs = downloadedAtEpochMs,
 )
