@@ -85,7 +85,43 @@ Record the memory values and check for sustained growth as you read.
 9. If the battery hint appears, tap **Battery settings**. Confirm that Android opens the battery-optimization settings page.
 10. Confirm that screens use the device's monochrome theme, buttons have 48dp tap targets, and route changes have no transition animation.
 
-Real BOOX Leaf 5 and Leaf 5C verification is pending.
+## Verified results
+
+Verified on BOOX Leaf5 (Android 13, SDK 33) with build `v0.3.0-phase3`.
+
+| Check | Result |
+|---|---|
+| Install and launch to Latest | Pass |
+| Browse 7d / 15d / 30d / All refresh | Pass |
+| Browse All paging and lazy cover loading | Pass |
+| Search by keyword, open result | Pass |
+| Detail title, cover, metadata, chapter order | Pass |
+| Chapter download Queued -> Downloading -> Downloaded | Pass |
+| Download writes `files/downloaded/{comicId}/{chapterId}/` with both metadata files | Pass |
+| Foreground service runs during queue and stops when drained | Pass |
+| Offline read of a downloaded chapter in airplane mode | Pass, no network call |
+| Offline-only prompt on an undownloaded chapter | Pass, no network call |
+| Offline-only **Back** loads nothing | Pass |
+| Offline-only **Stream Anyway** streams | Pass |
+| Bookmark toggle and Bookmarks list with real chapter title | Pass |
+| Continue button shows the real chapter title and page | Pass |
+| Settings persist across tab switches | Pass |
+| Default update window applied to Browse | Pass |
+| LTR tap zones: right advances, left goes back | Pass |
+| Monochrome, 1dp borders, 48dp targets, no ripples or transitions | Pass |
+| Room migration from version 1 preserves existing bookmarks | Pass |
+
+Physical keys received by the reader, each turning once on `ACTION_DOWN`:
+
+| Key | keyCode |
+|---|---|
+| `KEYCODE_PAGE_DOWN` | 93 |
+| `KEYCODE_PAGE_UP` | 92 |
+| `KEYCODE_DPAD_RIGHT` | 22 |
+| `KEYCODE_DPAD_LEFT` | 21 |
+| `KEYCODE_VOLUME_UP` | 24 |
+
+Still pending on a real device: Leaf 5C, dark mode contrast, ghosting, long-chapter memory, keep-screen-on, CBZ and PDF export pickers, download cancel and delete, notification taps, and the periodic update worker.
 
 ## Verify Phase 3 offline downloads and exports
 
