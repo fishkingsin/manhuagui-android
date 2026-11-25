@@ -77,7 +77,7 @@ fn android_core_config(download_root: &str, export_root: &str) -> CoreConfig {
         export_dir: PathBuf::from(export_root),
         comic_dir_fmt: "{comic_id}".to_owned(),
         chapter_dir_fmt: "{chapter_id}".to_owned(),
-        chapter_download_interval_sec: 0,
+        chapter_download_interval_sec: 10,
         img_download_interval_sec: 0,
         api_timeout_sec: 15,
         img_timeout_sec: 30,
