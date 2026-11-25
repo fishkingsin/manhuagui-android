@@ -118,6 +118,94 @@ class LocalStoreTest {
         assertEquals(progress(comicId = 8, chapterId = 13), store.getReadingProgress(8))
     }
 
+    @Test
+    fun downloadedChaptersUpsertLookupAndSortByGroupOrderAndChapter() = runTest {
+        val store = InMemoryLocalStore()
+        val records = listOf(
+            downloadedChapter(comicId = 4, chapterId = 1, groupName = "B", order = 1.0),
+            downloadedChapter(comicId = 4, chapterId = 3, groupName = "A", order = 2.0),
+            downloadedChapter(comicId = 4, chapterId = 2, groupName = "A", order = 2.0),
+            downloadedChapter(comicId = 4, chapterId = 4, groupName = "A", order = 1.0),
+            downloadedChapter(comicId = 4, chapterId = 3, groupName = "A", order = 2.0, title = "Updated"),
+            downloadedChapter(comicId = 4, sourceId = "other", chapterId = 5, groupName = "A", order = 3.0),
+            downloadedChapter(comicId = 8, chapterId = 6, groupName = "A", order = 3.0),
+        )
+        records.forEach { store.upsertDownloadedChapter(it) }
+
+        val expected = listOf(
+            downloadedChapter(comicId = 4, chapterId = 2, groupName = "A", order = 2.0),
+            downloadedChapter(comicId = 4, chapterId = 3, groupName = "A", order = 2.0, title = "Updated"),
+            downloadedChapter(comicId = 4, chapterId = 4, groupName = "A", order = 1.0),
+            downloadedChapter(comicId = 4, chapterId = 1, groupName = "B", order = 1.0),
+        )
+
+        assertEquals(expected, store.getDownloadedChapters(comicId = 4))
+        assertEquals(expected, store.observeDownloadedChapters(comicId = 4).first())
+        assertEquals(
+            downloadedChapter(comicId = 4, sourceId = "other", chapterId = 5, groupName = "A", order = 3.0),
+            store.getDownloadedChapter(comicId = 4, chapterId = 5, sourceId = "other"),
+        )
+        assertNull(store.getDownloadedChapter(comicId = 4, chapterId = 5))
+    }
+
+    @Test
+    fun deleteDownloadedChapterKeepsOtherChaptersAndSources() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 4, chapterId = 10))
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 4, chapterId = 11))
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 4, sourceId = "other", chapterId = 10))
+
+        store.deleteDownloadedChapter(comicId = 4, chapterId = 10)
+
+        assertEquals(listOf(11L), store.getDownloadedChapters(comicId = 4).map(DownloadedChapterRecord::chapterId))
+        assertEquals(
+            listOf(10L),
+            store.getDownloadedChapters(comicId = 4, sourceId = "other").map(DownloadedChapterRecord::chapterId),
+        )
+    }
+
+    @Test
+    fun reconcileDownloadedChaptersReplacesOnlyTheSelectedSource() = runTest {
+        val store = InMemoryLocalStore()
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 4, chapterId = 10))
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 5, chapterId = 11))
+        store.upsertDownloadedChapter(downloadedChapter(comicId = 4, sourceId = "other", chapterId = 12))
+
+        store.reconcileDownloadedChapters(
+            records = listOf(
+                downloadedChapter(comicId = 4, chapterId = 20),
+                downloadedChapter(comicId = 4, sourceId = "other", chapterId = 21),
+            ),
+        )
+
+        assertEquals(listOf(20L), store.getDownloadedChapters(comicId = 4).map(DownloadedChapterRecord::chapterId))
+        assertEquals(emptyList<DownloadedChapterRecord>(), store.getDownloadedChapters(comicId = 5))
+        assertEquals(
+            listOf(12L),
+            store.getDownloadedChapters(comicId = 4, sourceId = "other").map(DownloadedChapterRecord::chapterId),
+        )
+    }
+
+    private fun downloadedChapter(
+        comicId: Long,
+        sourceId: String = DEFAULT_SOURCE_ID,
+        chapterId: Long,
+        groupName: String = "Group",
+        order: Double = 1.0,
+        title: String = "Chapter $chapterId",
+    ) = DownloadedChapterRecord(
+        sourceId = sourceId,
+        comicId = comicId,
+        comicTitle = "Comic $comicId",
+        chapterId = chapterId,
+        chapterTitle = title,
+        groupName = groupName,
+        order = order,
+        pageCount = 8,
+        chapterDir = "/downloads/$comicId/$chapterId",
+        downloadedAtEpochMs = chapterId,
+    )
+
     private fun bookmark(
         comicId: Long,
         sourceId: String = DEFAULT_SOURCE_ID,

@@ -2,6 +2,8 @@ package com.fishkingsin.manhuagui.ui.latest
 
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
+import com.fishkingsin.manhuagui.settings.AppSettings
+import com.fishkingsin.manhuagui.settings.InMemorySettingsStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -13,12 +15,17 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.manhuagui_ffi.AndroidDownloadObserver
+import uniffi.manhuagui_ffi.AndroidExportFormat
 import uniffi.manhuagui_ffi.AndroidLibraryInterface
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 import uniffi.manhuagui_ffi.BrowsePage
 import uniffi.manhuagui_ffi.ChapterPagesResult
 import uniffi.manhuagui_ffi.ComicDetails
 import uniffi.manhuagui_ffi.ComicListItem
+import uniffi.manhuagui_ffi.DownloadedChapter
+import uniffi.manhuagui_ffi.ExportedChapterFile
+import uniffi.manhuagui_ffi.LocalChapterNavigation
 import uniffi.manhuagui_ffi.SearchPage
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -187,8 +194,28 @@ class LatestViewModelTest {
         assertFalse(viewModel.state.value.loading)
     }
 
-    private fun viewModel(library: FakeLibrary, scope: TestScope) = LatestViewModel(
+    @Test
+    fun firstRefreshLoadsTheSavedDefaultUpdateWindow() = runTest {
+        val library = FakeLibrary()
+        val settingsStore = InMemorySettingsStore(
+            AppSettings(defaultUpdateWindow = AndroidUpdateWindow.ALL),
+        )
+        val viewModel = viewModel(library, this, settingsStore)
+
+        viewModel.refresh()
+        runCurrent()
+
+        assertEquals(AndroidUpdateWindow.ALL, viewModel.state.value.window)
+        assertEquals(listOf(1), library.latestPages)
+    }
+
+    private fun viewModel(
+        library: FakeLibrary,
+        scope: TestScope,
+        settingsStore: InMemorySettingsStore = InMemorySettingsStore(),
+    ) = LatestViewModel(
         service = LibraryService(library, StandardTestDispatcher(scope.testScheduler)),
+        settingsStore = settingsStore,
         scope = scope.backgroundScope,
     )
 
@@ -237,6 +264,38 @@ class LatestViewModelTest {
             error("Not used by these tests")
 
         override suspend fun getChapterPages(nativeId: Long, chapterId: Long): ChapterPagesResult =
+            error("Not used by these tests")
+
+        override fun cancelDownload(chapterId: Long) = Unit
+
+        override suspend fun deleteDownloadedChapter(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+        ) = error("Not used by these tests")
+
+        override suspend fun downloadChapter(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+            observer: AndroidDownloadObserver,
+        ): DownloadedChapter = error("Not used by these tests")
+
+        override suspend fun exportChapters(
+            nativeId: Long,
+            chapterIds: List<Long>,
+            downloadRoot: String,
+            exportRoot: String,
+            format: AndroidExportFormat,
+        ): List<ExportedChapterFile> = error("Not used by these tests")
+
+        override suspend fun readLocalChapterNavigation(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+        ): LocalChapterNavigation = error("Not used by these tests")
+
+        override suspend fun scanDownloadedChapters(downloadRoot: String): List<DownloadedChapter> =
             error("Not used by these tests")
     }
 }

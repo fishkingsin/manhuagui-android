@@ -1276,11 +1276,18 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "eyre",
  "library",
+ "parking_lot 0.12.5",
+ "reqwest",
+ "reqwest-middleware",
+ "reqwest-retry",
+ "serde_json",
  "source-api",
  "source-manhuagui",
  "tokio",
  "uniffi",
+ "walkdir",
 ]
 
 [[package]]

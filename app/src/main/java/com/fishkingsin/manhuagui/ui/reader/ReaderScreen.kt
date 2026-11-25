@@ -67,6 +67,9 @@ import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.PageImages
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
+import com.fishkingsin.manhuagui.settings.InMemorySettingsStore
+import com.fishkingsin.manhuagui.settings.ReadingDirection
+import com.fishkingsin.manhuagui.settings.SettingsStore
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.min
@@ -82,15 +85,28 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onOpenChapter: (Long) -> Unit,
     localStore: LocalStore = InMemoryLocalStore(),
+    settingsStore: SettingsStore = InMemorySettingsStore(),
+    downloadRoot: String = "",
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(nativeId, chapterId, chapterTitle, service, localStore, scope) {
+    val viewModel = remember(
+        nativeId,
+        chapterId,
+        chapterTitle,
+        service,
+        localStore,
+        settingsStore,
+        downloadRoot,
+        scope,
+    ) {
         ReaderViewModel(
             nativeId = nativeId,
             chapterId = chapterId,
             chapterTitle = chapterTitle,
             service = service,
             localStore = localStore,
+            settingsStore = settingsStore,
+            downloadRoot = downloadRoot,
             scope = scope,
         )
     }
@@ -103,6 +119,11 @@ fun ReaderScreen(
     val focusRequester = remember { FocusRequester() }
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
+    val layoutDirection = if (uiState.readingDirection == ReadingDirection.RTL) {
+        LayoutDirection.Rtl
+    } else {
+        LayoutDirection.Ltr
+    }
     val window = (context as? Activity)?.window
 
     DisposableEffect(lifecycleOwner, view, window) {
@@ -136,8 +157,13 @@ fun ReaderScreen(
     LaunchedEffect(viewModel) {
         viewModel.load()
     }
-    LaunchedEffect(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection) {
-        prefetcher.onPageTurn(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection)
+    LaunchedEffect(uiState.pages, uiState.pageIndex, uiState.lastTurnDirection, uiState.prefetchCount) {
+        prefetcher.onPageTurn(
+            uiState.pages,
+            uiState.pageIndex,
+            uiState.lastTurnDirection,
+            aheadCount = uiState.prefetchCount,
+        )
     }
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
@@ -158,51 +184,65 @@ fun ReaderScreen(
                 val keyResult = handleReaderKey(
                     event.nativeKeyEvent.keyCode,
                     event.nativeKeyEvent.action,
-                    rtl = true,
+                    rtl = uiState.readingDirection == ReadingDirection.RTL,
                 )
                 if (keyResult.pageDelta != null) viewModel.turnPage(keyResult.pageDelta)
                 keyResult.consumed
             },
     ) {
-        when {
-            uiState.error != null -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReaderButton("Retry", viewModel::retry)
-                    ReaderButton("Back", onBack)
-                }
-            }
-            uiState.loading || uiState.pages.isEmpty() -> Box(
-                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Loading…", color = contentColor)
-            }
-            else -> {
-                val pagerState = rememberPagerState(initialPage = uiState.pageIndex) { uiState.pages.size }
-
-                LaunchedEffect(pagerState, viewModel) {
-                    snapshotFlow { pagerState.currentPage }
-                        .distinctUntilChanged()
-                        .collect { page ->
-                            readerState = readerState.onPagerPage(page)
-                            viewModel.onPageChanged(page)
-                        }
-                }
-                LaunchedEffect(uiState.pageIndex, uiState.pages.size) {
-                    if (uiState.pages.isNotEmpty() && pagerState.currentPage != uiState.pageIndex) {
-                        pagerState.scrollToPage(uiState.pageIndex)
+        CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+            when {
+                uiState.awaitingOfflineStreamConfirmation -> Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .safeDrawingPadding()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text("Offline-only mode is on. This chapter is not downloaded.", color = contentColor)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReaderButton("Stream Anyway", viewModel::confirmStreaming)
+                        ReaderButton("Back", onBack)
                     }
                 }
+                uiState.error != null -> Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .safeDrawingPadding()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(uiState.error?.userMessage.orEmpty(), color = contentColor)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ReaderButton("Retry", viewModel::retry)
+                        ReaderButton("Back", onBack)
+                    }
+                }
+                uiState.loading || uiState.pages.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Loading…", color = contentColor)
+                }
+                else -> {
+                    val pagerState = rememberPagerState(initialPage = uiState.pageIndex) { uiState.pages.size }
 
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    LaunchedEffect(pagerState, viewModel) {
+                        snapshotFlow { pagerState.currentPage }
+                            .distinctUntilChanged()
+                            .collect { page ->
+                                readerState = readerState.onPagerPage(page)
+                                viewModel.onPageChanged(page)
+                            }
+                    }
+                    LaunchedEffect(uiState.pageIndex, uiState.pages.size) {
+                        if (uiState.pages.isNotEmpty() && pagerState.currentPage != uiState.pageIndex) {
+                            pagerState.scrollToPage(uiState.pageIndex)
+                        }
+                    }
+
                     HorizontalPager(
                         state = pagerState,
                         beyondViewportPageCount = 0,
@@ -213,21 +253,23 @@ fun ReaderScreen(
                             page = uiState.pages[pageIndex],
                             imageLoader = imageLoader,
                             readerState = readerState,
+                            rtl = uiState.readingDirection == ReadingDirection.RTL,
                             onReaderStateChange = { readerState = it },
                             onTurnPage = viewModel::turnPage,
                             onToggleChrome = viewModel::toggleChrome,
                         )
                     }
-                }
 
-                if (uiState.chromeVisible) {
-                    ReaderChrome(
-                        chapterId = uiState.chapterId,
-                        pageIndex = uiState.pageIndex,
-                        pageCount = uiState.pages.size,
-                        onBack = onBack,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    )
+                    if (uiState.chromeVisible) {
+                        ReaderChrome(
+                            chapterId = uiState.chapterId,
+                            pageIndex = uiState.pageIndex,
+                            pageCount = uiState.pages.size,
+                            isOfflineChapter = uiState.isOfflineChapter,
+                            onBack = onBack,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
                 }
             }
         }
@@ -239,6 +281,7 @@ private fun ReaderPage(
     page: ImagePage,
     imageLoader: ImageLoader,
     readerState: ReaderState,
+    rtl: Boolean,
     onReaderStateChange: (ReaderState) -> Unit,
     onTurnPage: (Int) -> Unit,
     onToggleChrome: () -> Unit,
@@ -304,13 +347,13 @@ private fun ReaderPage(
                     } while (event.changes.any { it.pressed })
                 }
             }
-            .pointerInput(page.url) {
+            .pointerInput(page.url, rtl) {
                 detectTapGestures(
                     onDoubleTap = {
                         updateReaderState(currentReaderState.toggleDoubleTapZoom())
                     },
                     onTap = { point ->
-                        when (tapZoneAction(point.x, size.width.toFloat())) {
+                        when (tapZoneAction(point.x, size.width.toFloat(), rtl)) {
                             TapAction.PrevPage -> turnPage(-1)
                             TapAction.NextPage -> turnPage(1)
                             TapAction.ToggleChrome -> toggleChrome()
@@ -365,6 +408,7 @@ private fun ReaderChrome(
     chapterId: Long,
     pageIndex: Int,
     pageCount: Int,
+    isOfflineChapter: Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -382,6 +426,9 @@ private fun ReaderChrome(
     ) {
         ReaderButton("Back", onBack)
         Text("Chapter $chapterId", color = contentColor)
+        if (isOfflineChapter) {
+            Text("Offline", color = contentColor, style = MaterialTheme.typography.labelSmall)
+        }
         Text("${pageIndex + 1} / $pageCount", color = contentColor)
     }
 }

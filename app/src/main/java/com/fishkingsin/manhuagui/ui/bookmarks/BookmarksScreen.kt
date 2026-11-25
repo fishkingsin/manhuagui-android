@@ -52,7 +52,6 @@ import com.fishkingsin.manhuagui.data.LocalStore
 fun BookmarksScreen(
     localStore: LocalStore,
     checker: BookmarkUpdateChecker,
-    onBack: () -> Unit,
     onComic: (Long) -> Unit,
     imageLoader: ImageLoader,
 ) {
@@ -92,7 +91,6 @@ fun BookmarksScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            EInkButton(label = "Back", onClick = onBack)
             Text(text = "Bookmarks", color = contentColor, fontSize = 24.sp)
             EInkButton(
                 label = "Check updates",

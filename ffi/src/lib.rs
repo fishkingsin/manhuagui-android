@@ -3,8 +3,9 @@ mod types;
 
 pub use library::AndroidLibrary;
 pub use types::{
-    AndroidError, AndroidUpdateWindow, BrowsePage, ChapterItem, ChapterPagesResult, ComicDetails,
-    ComicListItem, ImagePage, SearchPage,
+    AndroidDownloadObserver, AndroidError, AndroidExportFormat, AndroidUpdateWindow, BrowsePage,
+    ChapterItem, ChapterPagesResult, ComicDetails, ComicListItem, DownloadedChapter,
+    ExportedChapterFile, ImagePage, LocalChapterNavigation, SearchPage,
 };
 
 uniffi::setup_scaffolding!("manhuagui_ffi");

@@ -3,6 +3,8 @@ package com.fishkingsin.manhuagui.ui.latest
 import com.fishkingsin.manhuagui.core.AppError
 import com.fishkingsin.manhuagui.core.LibraryService
 import com.fishkingsin.manhuagui.core.toAppError
+import com.fishkingsin.manhuagui.settings.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,19 +27,35 @@ data class LatestUiState(
 
 class LatestViewModel(
     private val service: LibraryService,
+    private val settingsStore: SettingsStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
     private val mutableState = MutableStateFlow(LatestUiState())
     val state = mutableState.asStateFlow()
 
     private var requestJob: Job? = null
+    private var windowInitialized = false
 
     fun refresh() {
         if (mutableState.value.loading) return
 
-        val window = mutableState.value.window
-        mutableState.value = LatestUiState(window = window, loading = true)
+        mutableState.value = LatestUiState(window = mutableState.value.window, loading = true)
         requestJob = scope.launch {
+            val window = if (windowInitialized) {
+                mutableState.value.window
+            } else {
+                try {
+                    settingsStore.getSettings().defaultUpdateWindow.also { savedWindow ->
+                        windowInitialized = true
+                        mutableState.value = mutableState.value.copy(window = savedWindow)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    showRefreshError(failure)
+                    return@launch
+                }
+            }
             when (window) {
                 AndroidUpdateWindow.ALL -> service.browseLatestPage(1).fold(
                     onSuccess = { page ->
@@ -68,6 +86,7 @@ class LatestViewModel(
 
     fun setWindow(window: AndroidUpdateWindow) {
         requestJob?.cancel()
+        windowInitialized = true
         mutableState.value = LatestUiState(window = window)
         refresh()
     }

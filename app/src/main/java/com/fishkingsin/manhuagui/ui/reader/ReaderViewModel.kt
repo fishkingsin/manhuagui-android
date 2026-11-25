@@ -6,6 +6,10 @@ import com.fishkingsin.manhuagui.core.toAppError
 import com.fishkingsin.manhuagui.data.InMemoryLocalStore
 import com.fishkingsin.manhuagui.data.LocalStore
 import com.fishkingsin.manhuagui.data.ReadingProgress
+import com.fishkingsin.manhuagui.settings.InMemorySettingsStore
+import com.fishkingsin.manhuagui.settings.ReadingDirection
+import com.fishkingsin.manhuagui.settings.SettingsStore
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.manhuagui_ffi.ImagePage
 
 sealed interface ReaderEffect {
@@ -31,6 +36,10 @@ data class ReaderUiState(
     val chromeVisible: Boolean = false,
     val loading: Boolean = false,
     val error: AppError? = null,
+    val awaitingOfflineStreamConfirmation: Boolean = false,
+    val isOfflineChapter: Boolean = false,
+    val readingDirection: ReadingDirection = ReadingDirection.RTL,
+    val prefetchCount: Int = 3,
 )
 
 class ReaderViewModel(
@@ -38,6 +47,8 @@ class ReaderViewModel(
     private val chapterId: Long,
     private val service: LibraryService,
     private val localStore: LocalStore = InMemoryLocalStore(),
+    private val settingsStore: SettingsStore = InMemorySettingsStore(),
+    private val downloadRoot: String = "",
     private val chapterTitle: String = "",
     private val clockMs: () -> Long = System::currentTimeMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
@@ -52,55 +63,127 @@ class ReaderViewModel(
     fun load() {
         if (mutableState.value.loading) return
 
-        mutableState.value = mutableState.value.copy(loading = true, error = null)
+        mutableState.value = mutableState.value.copy(
+            loading = true,
+            error = null,
+            awaitingOfflineStreamConfirmation = false,
+            isOfflineChapter = false,
+        )
         scope.launch {
-            service.getChapterPages(nativeId, chapterId).fold(
-                onSuccess = { result ->
-                    if (result.pages.isEmpty()) {
-                        mutableState.value = mutableState.value.copy(
-                            loading = false,
-                            pages = emptyList(),
-                            error = AppError.ParseFailed("Chapter has no pages"),
-                        )
-                    } else {
-                        val savedProgress = localStore.getReadingProgress(nativeId)
-                        resolvedChapterTitle = chapterTitle.ifBlank {
-                            savedProgress
-                                ?.takeIf { it.chapterId == chapterId && it.chapterTitle.isNotBlank() }
-                                ?.chapterTitle ?: "Chapter $chapterId"
-                        }
-                        val initialPageIndex = if (savedProgress?.chapterId == chapterId) {
-                            savedProgress.pageIndex.coerceIn(0, result.pages.lastIndex)
-                        } else {
-                            0
-                        }
-                        localStore.saveReadingProgress(progressAt(initialPageIndex))
-                        localStore.updateBookmarkIfPresent(nativeId) { bookmark ->
-                            if (bookmark.hasUnreadUpdate || bookmark.newChapterCount > 0) {
-                                bookmark.copy(hasUnreadUpdate = false, newChapterCount = 0)
-                            } else {
-                                bookmark
-                            }
-                        }
-                        mutableState.value = mutableState.value.copy(
-                            loading = false,
-                            pages = result.pages,
-                            pageIndex = initialPageIndex,
-                            prevChapterId = result.prevChapterId,
-                            nextChapterId = result.nextChapterId,
-                            error = null,
-                        )
-                    }
-                },
-                onFailure = { throwable ->
+            val downloadedChapter = localStore.getDownloadedChapter(nativeId, chapterId)
+            val settings = settingsStore.getSettings()
+            mutableState.value = mutableState.value.copy(
+                readingDirection = settings.readingDirection,
+                prefetchCount = settings.prefetchCount,
+            )
+            val localPages = downloadedChapter?.let { chapter ->
+                withContext(Dispatchers.IO) {
+                    File(chapter.chapterDir).listFiles()
+                        ?.filter { it.isFile && it.name.endsWith(".jpg") }
+                        ?.sortedBy { it.name }
+                        ?.map { file -> ImagePage(url = "file://${file.absolutePath}", headers = emptyMap()) }
+                        .orEmpty()
+                }
+            }.orEmpty()
+
+            if (localPages.isNotEmpty()) {
+                val navigation = service.readLocalChapterNavigation(nativeId, chapterId, downloadRoot).getOrNull()
+                publishPages(
+                    pages = localPages,
+                    prevChapterId = navigation?.prevChapterId,
+                    nextChapterId = navigation?.nextChapterId,
+                    isOfflineChapter = true,
+                )
+                return@launch
+            }
+            if (localPages.isEmpty() && settings.offlineOnlyMode) {
+                mutableState.value = mutableState.value.copy(
+                    loading = false,
+                    awaitingOfflineStreamConfirmation = true,
+                )
+                return@launch
+            }
+            streamChapter()
+        }
+    }
+
+    fun confirmStreaming() {
+        val current = mutableState.value
+        if (!current.awaitingOfflineStreamConfirmation || current.loading) return
+
+        mutableState.value = current.copy(
+            awaitingOfflineStreamConfirmation = false,
+            loading = true,
+            error = null,
+        )
+        scope.launch { streamChapter() }
+    }
+
+    private suspend fun streamChapter() {
+        service.getChapterPages(nativeId, chapterId).fold(
+            onSuccess = { result ->
+                if (result.pages.isEmpty()) {
                     mutableState.value = mutableState.value.copy(
                         loading = false,
                         pages = emptyList(),
-                        error = throwable.toAppError(),
+                        isOfflineChapter = false,
+                        error = AppError.ParseFailed("Chapter has no pages"),
                     )
-                },
-            )
+                } else {
+                    publishPages(
+                        pages = result.pages,
+                        prevChapterId = result.prevChapterId,
+                        nextChapterId = result.nextChapterId,
+                        isOfflineChapter = false,
+                    )
+                }
+            },
+            onFailure = { throwable ->
+                mutableState.value = mutableState.value.copy(
+                    loading = false,
+                    pages = emptyList(),
+                    isOfflineChapter = false,
+                    error = throwable.toAppError(),
+                )
+            },
+        )
+    }
+
+    private suspend fun publishPages(
+        pages: List<ImagePage>,
+        prevChapterId: Long?,
+        nextChapterId: Long?,
+        isOfflineChapter: Boolean,
+    ) {
+        val savedProgress = localStore.getReadingProgress(nativeId)
+        resolvedChapterTitle = chapterTitle.ifBlank {
+            savedProgress
+                ?.takeIf { it.chapterId == chapterId && it.chapterTitle.isNotBlank() }
+                ?.chapterTitle ?: "Chapter $chapterId"
         }
+        val initialPageIndex = if (savedProgress?.chapterId == chapterId) {
+            savedProgress.pageIndex.coerceIn(0, pages.lastIndex)
+        } else {
+            0
+        }
+        localStore.saveReadingProgress(progressAt(initialPageIndex))
+        localStore.updateBookmarkIfPresent(nativeId) { bookmark ->
+            if (bookmark.hasUnreadUpdate || bookmark.newChapterCount > 0) {
+                bookmark.copy(hasUnreadUpdate = false, newChapterCount = 0)
+            } else {
+                bookmark
+            }
+        }
+        mutableState.value = mutableState.value.copy(
+            loading = false,
+            pages = pages,
+            pageIndex = initialPageIndex,
+            prevChapterId = prevChapterId,
+            nextChapterId = nextChapterId,
+            awaitingOfflineStreamConfirmation = false,
+            isOfflineChapter = isOfflineChapter,
+            error = null,
+        )
     }
 
     fun retry() = load()

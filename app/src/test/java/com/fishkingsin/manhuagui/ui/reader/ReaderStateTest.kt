@@ -6,18 +6,16 @@ import org.junit.Test
 
 class ReaderStateTest {
     @Test
-    fun tapZonesMirrorAtRepresentativePointsInRtlAndLtr() {
+    fun tapZoneActionUsesReadingDirectionAtTheLeftCenterAndRight() {
         val samples = listOf(
-            0f to (TapAction.NextPage to TapAction.PrevPage),
-            39f to (TapAction.NextPage to TapAction.PrevPage),
-            50f to (TapAction.ToggleChrome to TapAction.ToggleChrome),
-            61f to (TapAction.PrevPage to TapAction.NextPage),
-            100f to (TapAction.PrevPage to TapAction.NextPage),
+            50f to (TapAction.NextPage to TapAction.PrevPage),
+            150f to (TapAction.ToggleChrome to TapAction.ToggleChrome),
+            250f to (TapAction.PrevPage to TapAction.NextPage),
         )
 
         samples.forEach { (x, expected) ->
-            assertEquals("RTL at x=$x", expected.first, tapZoneAction(x, 100f, rtl = true))
-            assertEquals("LTR at x=$x", expected.second, tapZoneAction(x, 100f, rtl = false))
+            assertEquals("RTL at x=$x", expected.first, tapZoneAction(x, 300f, rtl = true))
+            assertEquals("LTR at x=$x", expected.second, tapZoneAction(x, 300f, rtl = false))
         }
     }
 

@@ -13,12 +13,17 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.manhuagui_ffi.AndroidDownloadObserver
+import uniffi.manhuagui_ffi.AndroidExportFormat
 import uniffi.manhuagui_ffi.AndroidLibraryInterface
 import uniffi.manhuagui_ffi.AndroidUpdateWindow
 import uniffi.manhuagui_ffi.BrowsePage
 import uniffi.manhuagui_ffi.ChapterPagesResult
 import uniffi.manhuagui_ffi.ComicDetails
 import uniffi.manhuagui_ffi.ComicListItem
+import uniffi.manhuagui_ffi.DownloadedChapter
+import uniffi.manhuagui_ffi.ExportedChapterFile
+import uniffi.manhuagui_ffi.LocalChapterNavigation
 import uniffi.manhuagui_ffi.SearchPage
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -150,6 +155,38 @@ class SearchViewModelTest {
         override suspend fun getComic(nativeId: Long): ComicDetails = error("Not used by these tests")
 
         override suspend fun getChapterPages(nativeId: Long, chapterId: Long): ChapterPagesResult =
+            error("Not used by these tests")
+
+        override fun cancelDownload(chapterId: Long) = Unit
+
+        override suspend fun deleteDownloadedChapter(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+        ) = error("Not used by these tests")
+
+        override suspend fun downloadChapter(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+            observer: AndroidDownloadObserver,
+        ): DownloadedChapter = error("Not used by these tests")
+
+        override suspend fun exportChapters(
+            nativeId: Long,
+            chapterIds: List<Long>,
+            downloadRoot: String,
+            exportRoot: String,
+            format: AndroidExportFormat,
+        ): List<ExportedChapterFile> = error("Not used by these tests")
+
+        override suspend fun readLocalChapterNavigation(
+            nativeId: Long,
+            chapterId: Long,
+            downloadRoot: String,
+        ): LocalChapterNavigation = error("Not used by these tests")
+
+        override suspend fun scanDownloadedChapters(downloadRoot: String): List<DownloadedChapter> =
             error("Not used by these tests")
     }
 }

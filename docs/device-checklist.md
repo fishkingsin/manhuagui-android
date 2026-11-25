@@ -81,8 +81,29 @@ Record the memory values and check for sustained growth as you read.
 5. Open **Bookmarks** with no saved comics. Confirm that **No bookmarks yet.** appears.
 6. On Android 13 or later, confirm that Manhuagui requests notification permission when it starts. Allow notifications, then check for updates after a bookmarked comic gains chapters.
 7. Tap an update notification. Confirm that Manhuagui opens the Bookmarks screen.
-8. With a bookmarked comic that gains chapters, leave network access available and allow the six-hour background check to run. Confirm that Manhuagui posts an update notification.
+8. With a bookmarked comic that gains chapters, leave network access available and allow the configured periodic check to run. Confirm that Manhuagui posts an update notification.
 9. If the battery hint appears, tap **Battery settings**. Confirm that Android opens the battery-optimization settings page.
 10. Confirm that screens use the device's monochrome theme, buttons have 48dp tap targets, and route changes have no transition animation.
 
 Real BOOX Leaf 5 and Leaf 5C verification is pending.
+
+## Verify Phase 3 offline downloads and exports
+
+1. Open a comic detail page and tap **Download** for a chapter. Confirm the row changes from **Queued** to **Downloading** and then **Downloaded**.
+2. Start a chapter download and confirm the foreground notification shows progress.
+3. Tap **Cancel** while a chapter is queued or downloading. Confirm that the download stops and the row no longer shows an active state.
+4. Tap **Download Unread** after saving reading progress. Confirm that only chapters newer than the saved chapter are queued. Repeat with no saved progress and confirm that all chapters are queued.
+5. Tap **Delete** for one chapter. Confirm that its downloaded files and row badge disappear. Tap **Delete Downloads** and confirm that all downloaded chapters for the comic disappear.
+6. Confirm downloaded chapters use `files/downloaded/{comicId}/{chapterId}/`. Replace `COMIC_ID` and `CHAPTER_ID` with the downloaded IDs, then run `adb shell run-as com.fishkingsin.manhuagui ls files/downloaded/COMIC_ID/CHAPTER_ID` to inspect the app-private files.
+7. Export one downloaded chapter as CBZ and PDF. Confirm that each Android create-document picker writes a readable file to the selected location.
+8. Export all downloaded chapters as CBZ and PDF to a folder. Confirm that the folder contains one file per downloaded chapter.
+
+## Verify Phase 3 settings and offline reading
+
+1. Open **Settings**. Change reading direction, default update window, check interval, offline-only mode, prefetch count, and disk-cache size.
+2. Leave Settings and open it again. Confirm every selected value remains selected.
+3. Select a default update window, restart the app, and confirm Browse opens with that window.
+4. Change the bookmark-check interval. Confirm the periodic worker uses the selected interval after the setting is saved.
+5. Download a chapter, enable airplane mode, and open the chapter. Confirm that the reader shows its local pages.
+6. With airplane mode on and offline-only mode enabled, open an undownloaded chapter. Confirm the reader asks before streaming. Tap **Back** and confirm it does not load pages. Repeat and tap **Stream Anyway** with network access restored.
+7. On both BOOX devices, confirm the Settings screen, download controls, export pickers, and reader use monochrome colors, 1dp borders, and 48dp touch targets.

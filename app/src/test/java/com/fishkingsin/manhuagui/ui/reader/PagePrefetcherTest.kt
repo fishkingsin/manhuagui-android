@@ -13,6 +13,14 @@ class PagePrefetcherTest {
     }
 
     @Test
+    fun prefetchWindowUsesRequestedAheadCount() {
+        assertEquals(emptyList<Int>(), prefetchIndices(currentPage = 4, totalPages = 10, count = 0))
+        assertEquals(listOf(5, 6), prefetchIndices(currentPage = 4, totalPages = 10, count = 2))
+        assertEquals(listOf(5, 6, 7), prefetchIndices(currentPage = 4, totalPages = 10, count = 3))
+        assertEquals(listOf(5, 6, 7, 8, 9), prefetchIndices(currentPage = 4, totalPages = 10, count = 5))
+    }
+
+    @Test
     fun prefetchWindowStopsAtChapterBoundaries() {
         assertEquals(listOf(1, 2), prefetchIndices(currentPage = 0, totalPages = 3))
         assertEquals(emptyList<Int>(), prefetchIndices(currentPage = 0, totalPages = 3, directionDelta = -1))
@@ -39,6 +47,42 @@ class PagePrefetcherTest {
         prefetcher.onPageTurn(pages, currentPage = 4, directionDelta = -1)
 
         assertEquals(listOf(pages[3], pages[2], pages[1]), enqueued)
+        assertEquals(listOf(pages[0].url, pages[1].url, pages[7].url), evicted)
+    }
+
+    @Test
+    fun pageTurnUsesCustomAheadCount() {
+        val pages = (0..9).map(::imagePage)
+        val expectedByAheadCount = listOf(
+            0 to emptyList(),
+            2 to listOf(5, 6),
+            3 to listOf(5, 6, 7),
+            5 to listOf(5, 6, 7, 8, 9),
+        )
+
+        for ((aheadCount, expectedIndexes) in expectedByAheadCount) {
+            val enqueued = mutableListOf<ImagePage>()
+            val prefetcher = PagePrefetcher({ enqueued.add(it) }, {})
+
+            prefetcher.onPageTurn(pages, currentPage = 4, aheadCount = aheadCount)
+
+            assertEquals(expectedIndexes.map(pages::get), enqueued)
+        }
+    }
+
+    @Test
+    fun pageTurnSkipsLocalPagesButStillEvictsThem() {
+        val pages = (0..7).map { index ->
+            val url = if (index == 5 || index == 7) "file:///offline/$index.jpg" else "https://example.test/$index.jpg"
+            imagePage(index, url)
+        }
+        val enqueued = mutableListOf<ImagePage>()
+        val evicted = mutableListOf<String>()
+        val prefetcher = PagePrefetcher({ enqueued.add(it) }, { evicted.add(it) })
+
+        prefetcher.onPageTurn(pages, currentPage = 4, aheadCount = 3)
+
+        assertEquals(listOf(pages[6]), enqueued)
         assertEquals(listOf(pages[0].url, pages[1].url, pages[7].url), evicted)
     }
 
@@ -73,8 +117,8 @@ class PagePrefetcherTest {
         assertEquals(emptyList<String>(), evicted)
     }
 
-    private fun imagePage(index: Int) = ImagePage(
-        url = "https://example.test/$index.jpg",
+    private fun imagePage(index: Int, url: String = "https://example.test/$index.jpg") = ImagePage(
+        url = url,
         headers = mapOf("Referer" to "https://example.test/"),
     )
 

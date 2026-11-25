@@ -49,4 +49,14 @@ Use the [device checklist](docs/device-checklist.md) to verify browse, search, r
 
 ## Phase 2 checks
 
-Use the device checklist to verify bookmark creation and removal, manual and six-hour background checks, and update notifications. It also covers the Android 13 notification permission prompt, routing to Bookmarks, and the battery-optimization settings link. Real BOOX Leaf 5 and Leaf 5C verification is pending.
+Use the device checklist to verify bookmark creation and removal, manual and periodic background checks, and update notifications. It also covers the Android 13 notification permission prompt, routing to Bookmarks, and the battery-optimization settings link. Real BOOX Leaf 5 and Leaf 5C verification is pending.
+
+## Phase 3 offline reading
+
+Chapter downloads live in the app's private storage at `files/downloaded/{comicId}/{chapterId}/`. The comic and chapter directories contain metadata files and downloaded page images. Download and export actions are available from each comic's detail page. The foreground service shows download progress while a queue runs.
+
+Export a chapter as CBZ or PDF with the Android create-document picker. Export all downloaded chapters to a folder with the Android folder picker. Android writes the exported files to the location you choose.
+
+Settings lets you choose RTL or LTR reading, a 7-, 15-, or 30-day update window or All, a 1-, 6-, 12-, or 24-hour bookmark-check interval, offline-only mode, a prefetch count of 0, 2, 3, or 5, and a 256, 512, or 1024 MB image-cache size. The Browse tab uses the saved update window. The bookmark worker uses the saved interval. The reader prefers downloaded page images and asks before streaming an undownloaded chapter when offline-only mode is on.
+
+Use the [device checklist](docs/device-checklist.md) to verify downloads, exports, settings, foreground progress, and offline reading on BOOX Leaf 5 or Leaf 5C hardware.
